@@ -15,15 +15,13 @@ This is a terminal user interface (TUI) application built with Go and Bubble Tea
 ### Installation
 1. Clone the repository:
 ```bash
-git clone https://github.com/minhajul/feature-quest.git
-cd feature-quest
+git clone https://github.com/minhajul/docker-cleaner.git
+cd docker-cleaner
 ```
 
-2. Build the application:
-```go run main.go```
-
 ### Usage
-1. Run the application: ```go run main.go```
+1. Build the application: ```go build -o docker-cleaner```
+2. Run the application: ```./docker-cleaner```
 2. Navigate the list using the `up` and `down` arrow keys or `k` and `j`.
 3. Select/deselect items for cleanup by pressing the space bar.
 4. Press d to delete all selected images and containers.
