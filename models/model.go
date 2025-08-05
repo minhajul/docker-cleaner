@@ -10,14 +10,29 @@ import (
 	dockerClient "github.com/fsouza/go-dockerclient"
 )
 
+type ItemType int
+
+const (
+	ItemTypeHeader ItemType = iota
+	ItemTypeImage
+	ItemTypeContainer
+)
+
+type SelectableItem struct {
+	ID      string
+	Type    ItemType
+	Display string
+}
+
 type Model struct {
-	choices      []string
+	items        []SelectableItem
 	cursor       int
 	selected     map[int]struct{}
 	dockerClient *dockerClient.Client
 	images       []dockerClient.APIImages
 	containers   []dockerClient.APIContainers
 	errorMsg     string
+	successMsg   string
 	cleaning     bool
 }
 
@@ -59,19 +74,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "down", "j":
-			if m.cursor < len(m.choices)-1 {
+			if m.cursor < len(m.items)-1 {
 				m.cursor++
 			}
 
 		case "enter", " ":
-			_, ok := m.selected[m.cursor]
-			if ok {
-				delete(m.selected, m.cursor)
-			} else {
-				m.selected[m.cursor] = struct{}{}
+			// Only allow selection of non-header items
+			if m.cursor < len(m.items) && m.items[m.cursor].Type != ItemTypeHeader {
+				_, ok := m.selected[m.cursor]
+				if ok {
+					delete(m.selected, m.cursor)
+				} else {
+					m.selected[m.cursor] = struct{}{}
+				}
 			}
 		case "d": // Delete selected items
 			if len(m.selected) > 0 {
+				// Clear previous messages when starting new cleanup
+				m.errorMsg = ""
+				m.successMsg = ""
 				m.cleaning = true
 				return m, func() tea.Msg {
 					return docker.CleanupMsg{ItemsToClean: m.getSelectionForCleanup()}
@@ -81,12 +102,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case docker.ImagesFetchedMsg:
 		m.images = msg.Images
-		m.updateChoices()
+		m.updateItems()
 		return m, nil
 
 	case docker.ContainersFetchedMsg:
 		m.containers = msg.Containers
-		m.updateChoices()
+		m.updateItems()
 		return m, nil
 
 	case docker.CleanupMsg:
@@ -95,10 +116,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case docker.CleanupDoneMsg:
 		m.cleaning = false
 		m.selected = make(map[int]struct{})
+		m.errorMsg = "" // Clear any previous errors
+		m.successMsg = msg.Message
 		return m, tea.Batch(docker.FetchDockerImages, docker.FetchDockerContainers)
 
 	case docker.ErrMsg:
 		m.errorMsg = msg.Error()
+		m.successMsg = "" // Clear any previous success messages
 		m.cleaning = false
 		return m, nil
 	}
@@ -109,7 +133,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	s := "Docker Cleaner\n\n"
 
-	for i, choice := range m.choices {
+	for i, item := range m.items {
 		cursor := " " // no cursor
 		if m.cursor == i {
 			cursor = ">" // cursor!
@@ -120,47 +144,84 @@ func (m Model) View() string {
 			checked = "x" // selected!
 		}
 
-		s += fmt.Sprintf("%s [%s] %s\n", cursor, checked, choice)
+		// Don't show checkbox for headers
+		if item.Type == ItemTypeHeader {
+			s += fmt.Sprintf("%s    %s\n", cursor, item.Display)
+		} else {
+			s += fmt.Sprintf("%s [%s] %s\n", cursor, checked, item.Display)
+		}
 	}
 
 	s += "\nPress q to quit. Press space to select/deselect. Press d to delete selected.\n"
 	if m.cleaning {
 		s += "Cleaning up...\n"
 	}
+	if m.successMsg != "" {
+		s += fmt.Sprintf("✓ %s\n", m.successMsg)
+	}
 	if m.errorMsg != "" {
-		s += fmt.Sprintf("Error: %s\n", m.errorMsg)
+		s += fmt.Sprintf("✗ Error: %s\n", m.errorMsg)
 	}
 
 	return s
 }
 
-func (m *Model) getSelectionForCleanup() []string {
-	var items []string
+func (m *Model) getSelectionForCleanup() []docker.CleanupItem {
+	var items []docker.CleanupItem
 	for i := range m.selected {
-		item := m.choices[i]
-		if strings.Contains(item, "(ID:") {
-			parts := strings.Split(item, "(ID: ")
-			id := strings.TrimSuffix(parts[1], ")")
-			items = append(items, id)
+		if i < len(m.items) {
+			item := m.items[i]
+			if item.Type != ItemTypeHeader {
+				items = append(items, docker.CleanupItem{
+					ID:   item.ID,
+					Type: docker.CleanupItemType(item.Type),
+				})
+			}
 		}
 	}
 	return items
 }
 
-func (m *Model) updateChoices() {
-	m.choices = []string{}
-	m.choices = append(m.choices, "Docker Images")
+func (m *Model) updateItems() {
+	m.items = []SelectableItem{}
+
+	// Add images section
+	m.items = append(m.items, SelectableItem{
+		Type:    ItemTypeHeader,
+		Display: "Docker Images",
+	})
+
 	for _, img := range m.images {
 		name := "<none>"
-		if len(img.RepoTags) > 0 {
+		if len(img.RepoTags) > 0 && img.RepoTags[0] != "<none>:<none>" {
 			name = img.RepoTags[0]
 		}
-		m.choices = append(m.choices, fmt.Sprintf("  %s (ID: %s)", name, img.ID[:12]))
+		m.items = append(m.items, SelectableItem{
+			ID:      img.ID,
+			Type:    ItemTypeImage,
+			Display: fmt.Sprintf("  %s (ID: %s)", name, img.ID[:12]),
+		})
 	}
 
-	m.choices = append(m.choices, "\nDocker Containers")
+	// Add containers section
+	m.items = append(m.items, SelectableItem{
+		Type:    ItemTypeHeader,
+		Display: "\nDocker Containers",
+	})
+
 	for _, container := range m.containers {
-		name := container.Names[0]
-		m.choices = append(m.choices, fmt.Sprintf("  %s (ID: %s, Image: %s)", name, container.ID[:12], container.Image))
+		name := "<none>"
+		if len(container.Names) > 0 {
+			name = container.Names[0]
+			// Remove leading slash from container name
+			if strings.HasPrefix(name, "/") {
+				name = name[1:]
+			}
+		}
+		m.items = append(m.items, SelectableItem{
+			ID:      container.ID,
+			Type:    ItemTypeContainer,
+			Display: fmt.Sprintf("  %s (ID: %s, Image: %s)", name, container.ID[:12], container.Image),
+		})
 	}
 }
