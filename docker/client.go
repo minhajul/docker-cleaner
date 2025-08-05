@@ -95,7 +95,7 @@ func PerformCleanup(cli *client.Client, items []CleanupItem) tea.Cmd {
 		// Create success message
 		var message string
 		if successCount > 0 {
-			parts := []string{}
+			var parts []string
 			if imageCount > 0 {
 				if imageCount == 1 {
 					parts = append(parts, "1 image")
