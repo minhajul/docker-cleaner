@@ -1,6 +1,6 @@
-### Docker Cleaner TUI
+### Docker Cleaner
 
-This is a terminal user interface (TUI) application built with Go and Bubble Tea for cleaning up Docker images and containers.
+This is a terminal user interface application built with Go and Bubble Tea for cleaning up Docker images and containers.
 
 ### Features
 - List all Docker images
