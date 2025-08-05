@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"docker-cleaner/docker"
@@ -22,10 +23,17 @@ type Model struct {
 
 func InitialModel() Model {
 	client, err := dockerClient.NewClientFromEnv()
+
 	if err != nil {
-		// In a real application, you might want to handle this more gracefully
-		// For now, we'll just log the fatal error.
-		panic(err)
+		fmt.Printf("Unable to connect to Docker daemon: %v\n", err)
+		os.Exit(1)
+	}
+
+	err = client.Ping()
+
+	if err != nil {
+		fmt.Println("Docker is not running or unreachable. Please start Docker and try again.")
+		os.Exit(1)
 	}
 
 	return Model{
