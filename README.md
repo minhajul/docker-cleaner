@@ -27,8 +27,21 @@ cd docker-cleaner
 4. Press d to delete all selected images and containers.
 5. Press `q` or `Ctrl+C` to quit the application.
 
+### Development
+
+To run tests:
+```bash
+go test ./...
+```
+
+To run linter:
+```bash
+go vet ./...
+```
+
 ### Contributing
 
 Feel free to open issues or pull requests if you have any suggestions or improvements.
+See [CONTRIBUTING.md](CONTRIBUTING).
 
 ### Made with ❤️ by [[minhajul](https://github.com/minhajul)]
