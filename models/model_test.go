@@ -1,6 +1,8 @@
 package models
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestGetSelectionForCleanup(t *testing.T) {
 	model := InitialModel()
