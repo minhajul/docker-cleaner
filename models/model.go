@@ -185,7 +185,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	var s strings.Builder
 
-	// Title
 	s.WriteString(titleStyle.Render("🐳 Docker Cleaner"))
 	s.WriteString("\n")
 
