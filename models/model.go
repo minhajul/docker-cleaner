@@ -40,52 +40,52 @@ type Model struct {
 // Define styles
 var (
 	titleStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#7C3AED")).
-		MarginBottom(1)
+			Bold(true).
+			Foreground(lipgloss.Color("#7C3AED")).
+			MarginBottom(1)
 
 	headerStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#3B82F6")).
-		MarginTop(1)
+			Bold(true).
+			Foreground(lipgloss.Color("#3B82F6")).
+			MarginTop(1)
 
 	cursorStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#F59E0B")).
-		Bold(true)
+			Foreground(lipgloss.Color("#F59E0B")).
+			Bold(true)
 
 	selectedCheckboxStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#10B981")).
-		Bold(true)
+				Foreground(lipgloss.Color("#10B981")).
+				Bold(true)
 
 	unselectedCheckboxStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#6B7280"))
+				Foreground(lipgloss.Color("#6B7280"))
 
 	itemStyle = lipgloss.NewStyle().
-		PaddingLeft(1)
+			PaddingLeft(1)
 
 	selectedItemStyle = lipgloss.NewStyle().
-		PaddingLeft(1).
-		Foreground(lipgloss.Color("#10B981"))
+				PaddingLeft(1).
+				Foreground(lipgloss.Color("#10B981"))
 
 	errorMessageStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FAFAFA")).
-		Background(lipgloss.Color("#EF4444")).
-		Padding(0, 1)
+				Foreground(lipgloss.Color("#FAFAFA")).
+				Background(lipgloss.Color("#EF4444")).
+				Padding(0, 1)
 
 	successMessageStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FAFAFA")).
-		Background(lipgloss.Color("#10B981")).
-		Padding(0, 1).
-		MarginTop(1)
+				Foreground(lipgloss.Color("#FAFAFA")).
+				Background(lipgloss.Color("#10B981")).
+				Padding(0, 1).
+				MarginTop(1)
 
 	instructionsStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#6B7280")).
-		MarginTop(1)
+				Foreground(lipgloss.Color("#6B7280")).
+				MarginTop(1)
 
 	cleaningStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#F59E0B")).
-		Bold(true).
-		MarginTop(1)
+			Foreground(lipgloss.Color("#F59E0B")).
+			Bold(true).
+			MarginTop(1)
 )
 
 func InitialModel() Model {
