@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"github.com/charmbracelet/lipgloss"
 	"os"
 	"strings"
 
@@ -36,6 +37,10 @@ type Model struct {
 	cleaning     bool
 }
 
+var errorMessageStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("#FAFAFA")).
+	Background(lipgloss.Color("#eb4d4b"))
+
 func InitialModel() Model {
 	client, err := dockerClient.NewClientFromEnv()
 
@@ -47,7 +52,7 @@ func InitialModel() Model {
 	err = client.Ping()
 
 	if err != nil {
-		fmt.Println("Docker is not running or unreachable. Please start Docker and try again.")
+		fmt.Println(errorMessageStyle.Render("Docker is not running or unreachable. Please start Docker and try again."))
 		os.Exit(1)
 	}
 
