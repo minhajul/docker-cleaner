@@ -37,9 +37,56 @@ type Model struct {
 	cleaning     bool
 }
 
-var errorMessageStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.Color("#FAFAFA")).
-	Background(lipgloss.Color("#eb4d4b"))
+// Define styles
+var (
+	titleStyle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#7C3AED")).
+		MarginBottom(1)
+
+	headerStyle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#3B82F6")).
+		MarginTop(1)
+
+	cursorStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#F59E0B")).
+		Bold(true)
+
+	selectedCheckboxStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#10B981")).
+		Bold(true)
+
+	unselectedCheckboxStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#6B7280"))
+
+	itemStyle = lipgloss.NewStyle().
+		PaddingLeft(1)
+
+	selectedItemStyle = lipgloss.NewStyle().
+		PaddingLeft(1).
+		Foreground(lipgloss.Color("#10B981"))
+
+	errorMessageStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FAFAFA")).
+		Background(lipgloss.Color("#EF4444")).
+		Padding(0, 1)
+
+	successMessageStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FAFAFA")).
+		Background(lipgloss.Color("#10B981")).
+		Padding(0, 1).
+		MarginTop(1)
+
+	instructionsStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#6B7280")).
+		MarginTop(1)
+
+	cleaningStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#F59E0B")).
+		Bold(true).
+		MarginTop(1)
+)
 
 func InitialModel() Model {
 	client, err := dockerClient.NewClientFromEnv()
@@ -136,39 +183,67 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	s := "Docker Cleaner\n\n"
+	var s strings.Builder
+
+	// Title
+	s.WriteString(titleStyle.Render("🐳 Docker Cleaner"))
+	s.WriteString("\n")
 
 	for i, item := range m.items {
-		cursor := " " // no cursor
+		var line strings.Builder
+
+		// Cursor indicator
 		if m.cursor == i {
-			cursor = ">" // cursor!
-		}
-
-		checked := " " // not selected
-		if _, ok := m.selected[i]; ok {
-			checked = "x" // selected!
-		}
-
-		// Don't show checkbox for headers
-		if item.Type == ItemTypeHeader {
-			s += fmt.Sprintf("%s    %s\n", cursor, item.Display)
+			line.WriteString(cursorStyle.Render("▶ "))
 		} else {
-			s += fmt.Sprintf("%s [%s] %s\n", cursor, checked, item.Display)
+			line.WriteString("  ")
 		}
+
+		// Handle different item types
+		if item.Type == ItemTypeHeader {
+			// Headers don't have checkboxes
+			line.WriteString(headerStyle.Render(item.Display))
+		} else {
+			// Checkbox for selectable items
+			_, isSelected := m.selected[i]
+			if isSelected {
+				line.WriteString(selectedCheckboxStyle.Render("✓ "))
+			} else {
+				line.WriteString(unselectedCheckboxStyle.Render("☐ "))
+			}
+
+			// Item text with appropriate styling
+			if isSelected {
+				line.WriteString(selectedItemStyle.Render(item.Display))
+			} else {
+				line.WriteString(itemStyle.Render(item.Display))
+			}
+		}
+
+		s.WriteString(line.String())
+		s.WriteString("\n")
 	}
 
-	s += "\nPress q to quit. Press space to select/deselect. Press d to delete selected.\n"
+	// Instructions
+	s.WriteString(instructionsStyle.Render("\n↑/↓ or j/k: navigate • space: select/deselect • d: delete selected • q: quit"))
+
+	// Status messages
 	if m.cleaning {
-		s += "Cleaning up...\n"
-	}
-	if m.successMsg != "" {
-		s += fmt.Sprintf("✓ %s\n", m.successMsg)
-	}
-	if m.errorMsg != "" {
-		s += fmt.Sprintf("✗ Error: %s\n", m.errorMsg)
+		s.WriteString("\n")
+		s.WriteString(cleaningStyle.Render("🔄 Cleaning up..."))
 	}
 
-	return s
+	if m.successMsg != "" {
+		s.WriteString("\n")
+		s.WriteString(successMessageStyle.Render("✅ " + m.successMsg))
+	}
+
+	if m.errorMsg != "" {
+		s.WriteString("\n")
+		s.WriteString(errorMessageStyle.Render("❌ " + m.errorMsg))
+	}
+
+	return s.String()
 }
 
 func (m *Model) getSelectionForCleanup() []docker.CleanupItem {
@@ -193,7 +268,7 @@ func (m *Model) updateItems() {
 	// Add images section
 	m.items = append(m.items, SelectableItem{
 		Type:    ItemTypeHeader,
-		Display: "Docker Images",
+		Display: "📦 Docker Images",
 	})
 
 	for _, img := range m.images {
@@ -204,14 +279,14 @@ func (m *Model) updateItems() {
 		m.items = append(m.items, SelectableItem{
 			ID:      img.ID,
 			Type:    ItemTypeImage,
-			Display: fmt.Sprintf("  %s (ID: %s)", name, img.ID[:12]),
+			Display: fmt.Sprintf("%s (ID: %s)", name, img.ID[:12]),
 		})
 	}
 
 	// Add containers section
 	m.items = append(m.items, SelectableItem{
 		Type:    ItemTypeHeader,
-		Display: "\nDocker Containers",
+		Display: "🏃 Docker Containers",
 	})
 
 	for _, container := range m.containers {
@@ -226,7 +301,7 @@ func (m *Model) updateItems() {
 		m.items = append(m.items, SelectableItem{
 			ID:      container.ID,
 			Type:    ItemTypeContainer,
-			Display: fmt.Sprintf("  %s (ID: %s, Image: %s)", name, container.ID[:12], container.Image),
+			Display: fmt.Sprintf("%s (ID: %s, Image: %s)", name, container.ID[:12], container.Image),
 		})
 	}
 }
