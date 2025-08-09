@@ -42,6 +42,6 @@ go vet ./...
 ### Contributing
 
 Feel free to open issues or pull requests if you have any suggestions or improvements.
-See [CONTRIBUTING.md](CONTRIBUTING).
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Made with ❤️ by [[minhajul](https://github.com/minhajul)]

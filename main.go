@@ -16,6 +16,7 @@ var errorMessageStyle = lipgloss.NewStyle().
 
 func main() {
 	p := tea.NewProgram(models.InitialModel())
+
 	if _, err := p.Run(); err != nil {
 		log.Fatalf(errorMessageStyle.Render(fmt.Sprintf("There's been an error: %v", err)))
 	}
