@@ -22,13 +22,12 @@ cd docker-cleaner
 ### Usage
 1. Build the application: ```go build -o docker-cleaner```
 2. Run the application: ```./docker-cleaner```
-2. Navigate the list using the `up` and `down` arrow keys or `k` and `j`.
-3. Select/deselect items for cleanup by pressing the space bar.
-4. Press d to delete all selected images and containers.
-5. Press `q` or `Ctrl+C` to quit the application.
+2. Navigate the list using the `up` and `down` arrow keys or `k` and `j`
+3. Select/deselect items for cleanup by pressing the space bar
+4. Press d to delete all selected images and containers
+5. Press `q` or `Ctrl+C` to quit the application
 
 ![Screenshot](art/screenshot.png)
-
 
 ### Development
 
