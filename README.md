@@ -1,25 +1,30 @@
-### Docker Cleaner
+## Docker Cleaner
 
 This is a terminal user interface application built with Go and Bubble Tea for cleaning up Docker images and containers.
 
 ### Features
+
 - List all Docker images
 - List all Docker containers (running and stopped)
 - Select multiple images/containers for deletion
 - Delete selected images/containers
 
 ### Prerequisites
+
 - Go (version 1.22 or higher)
 - Docker (running on your system)
 
 ### Installation
+
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/minhajul/docker-cleaner.git
 cd docker-cleaner
 ```
 
 ### Usage
+
 1. Build the application: ```go build -o docker-cleaner```
 2. Run the application: ```./docker-cleaner```
 2. Navigate the list using the `up` and `down` arrow keys or `k` and `j`
@@ -32,11 +37,13 @@ cd docker-cleaner
 ### Development
 
 To run tests:
+
 ```bash
 go test ./...
 ```
 
 To run linter:
+
 ```bash
 go vet ./...
 ```
