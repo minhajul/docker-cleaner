@@ -27,5 +27,5 @@ go.work.sum
 .idea
 docker-cleaner
 
-antigravity
+# Antigravity
 .antigravitycli/
