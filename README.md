@@ -25,12 +25,18 @@ cd docker-cleaner
 
 ### Usage
 
-1. Build the application: ```go build -o docker-cleaner```
-2. Run the application: ```./docker-cleaner```
-2. Navigate the list using the `up` and `down` arrow keys or `k` and `j`
-3. Select/deselect items for cleanup by pressing the space bar
-4. Press d to delete all selected images and containers
-5. Press `q` or `Ctrl+C` to quit the application
+1. Build the application: 
+   ```bash
+   make build
+   ```
+2. Run the application:
+   ```bash
+   make run
+   ```
+3. Navigate the list using the `up` and `down` arrow keys or `k` and `j`
+4. Select/deselect items for cleanup by pressing the space bar
+5. Press `d` to delete all selected images and containers
+6. Press `q` or `Ctrl+C` to quit the application
 
 ![Screenshot](art/screenshot.png)
 
@@ -39,13 +45,19 @@ cd docker-cleaner
 To run tests:
 
 ```bash
-go test ./...
+make test
 ```
 
 To run linter:
 
 ```bash
-go vet ./...
+make lint
+```
+
+To clean up:
+
+```bash
+make clean
 ```
 
 ### Contributing
