@@ -2,22 +2,24 @@ package main
 
 import (
 	"fmt"
-	"github.com/charmbracelet/lipgloss"
 	"log"
+	"os"
 
 	"docker-cleaner/models"
+	"docker-cleaner/styles"
+
 	"github.com/charmbracelet/bubbletea"
 )
 
-var errorMessageStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.Color("#FAFAFA")).
-	Background(lipgloss.Color("#EF4444")).
-	Padding(0, 1)
-
 func main() {
-	p := tea.NewProgram(models.InitialModel())
+	m, err := models.InitialModel()
+	if err != nil {
+		os.Exit(1)
+	}
 
+	p := tea.NewProgram(m)
 	if _, err := p.Run(); err != nil {
-		log.Fatalf(errorMessageStyle.Render(fmt.Sprintf("There's been an error: %v", err)))
+		msg := styles.ErrorMessage.Render(fmt.Sprintf("There's been an error: %v", err))
+		log.Fatalf("%s", msg)
 	}
 }
