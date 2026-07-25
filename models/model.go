@@ -213,13 +213,16 @@ func (m *Model) getSelectionForCleanup() []docker.CleanupItem {
 func (m *Model) updateItems() {
 	m.items = []SelectableItem{}
 
+	images := docker.FilterUserImages(m.images)
+	containers := docker.FilterUserContainers(m.containers)
+
 	// Add images section
 	m.items = append(m.items, SelectableItem{
 		Type:    ItemTypeHeader,
 		Display: "📦 Docker Images",
 	})
 
-	for _, img := range m.images {
+	for _, img := range images {
 		name := "<none>"
 		if len(img.RepoTags) > 0 && img.RepoTags[0] != "<none>:<none>" {
 			name = img.RepoTags[0]
@@ -237,7 +240,7 @@ func (m *Model) updateItems() {
 		Display: "🏃 Docker Containers",
 	})
 
-	for _, container := range m.containers {
+	for _, container := range containers {
 		name := "<none>"
 		if len(container.Names) > 0 {
 			name = container.Names[0]
