@@ -249,10 +249,14 @@ func (m *Model) updateItems() {
 				name = name[1:]
 			}
 		}
+		// SizeRw is the writable layer; SizeRootFs is the read-only image.
+		// Sum them so the user sees the actual disk footprint of removing
+		// this container.
+		totalSize := container.SizeRw + container.SizeRootFs
 		m.items = append(m.items, SelectableItem{
 			ID:      container.ID,
 			Type:    ItemTypeContainer,
-			Display: fmt.Sprintf("%s (ID: %s, Image: %s, Size: %s)", name, docker.ShortID(container.ID), container.Image, docker.HumanSize(container.SizeRw)),
+			Display: fmt.Sprintf("%s (ID: %s, Image: %s, Size: %s)", name, docker.ShortID(container.ID), container.Image, docker.HumanSize(totalSize)),
 		})
 	}
 }
