@@ -29,3 +29,6 @@ docker-cleaner
 
 # Antigravity
 .antigravitycli/
+
+# Puku CLI
+.puku-cli/
