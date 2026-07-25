@@ -29,39 +29,49 @@ func (e ErrMsg) Error() string {
 	return e.Err.Error()
 }
 
-// FetchDockerImages fetches all Docker images from the Docker daemon
-func FetchDockerImages() tea.Msg {
-	dockerClient, err := client.NewClientFromEnv()
-	if err != nil {
-		return ErrMsg{err}
+// HumanSize formats a byte count as a human-readable string (e.g. "1.2 GB").
+func HumanSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
 	}
-
-	images, err := dockerClient.ListImages(client.ListImagesOptions{All: false})
-	if err != nil {
-		return ErrMsg{err}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
 	}
-	return ImagesFetchedMsg{images}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
-// FetchDockerContainers fetches all Docker containers from the Docker daemon
-func FetchDockerContainers() tea.Msg {
-	dockerClient, err := client.NewClientFromEnv()
-	if err != nil {
-		return ErrMsg{err}
+// FetchDockerImages returns a tea.Cmd that fetches all Docker images using the
+// provided client. Sharing the client avoids the overhead of creating a new
+// connection on every refresh.
+func FetchDockerImages(cli *client.Client) tea.Cmd {
+	return func() tea.Msg {
+		images, err := cli.ListImages(client.ListImagesOptions{All: false})
+		if err != nil {
+			return ErrMsg{err}
+		}
+		return ImagesFetchedMsg{images}
 	}
-
-	containers, err := dockerClient.ListContainers(client.ListContainersOptions{All: true})
-	if err != nil {
-		return ErrMsg{err}
-	}
-	return ContainersFetchedMsg{containers}
 }
 
-// PerformCleanup removes the selected Docker images and containers
+// FetchDockerContainers returns a tea.Cmd that fetches all Docker containers
+// using the provided client.
+func FetchDockerContainers(cli *client.Client) tea.Cmd {
+	return func() tea.Msg {
+		containers, err := cli.ListContainers(client.ListContainersOptions{All: true})
+		if err != nil {
+			return ErrMsg{err}
+		}
+		return ContainersFetchedMsg{containers}
+	}
+}
+
+// PerformCleanup removes the selected Docker images and containers.
 func PerformCleanup(cli *client.Client, items []CleanupItem) tea.Cmd {
 	return func() tea.Msg {
 		var errors []string
-		var successCount int
 		var imageCount, containerCount int
 
 		for _, item := range items {
@@ -69,9 +79,8 @@ func PerformCleanup(cli *client.Client, items []CleanupItem) tea.Cmd {
 			case CleanupItemTypeImage:
 				err := cli.RemoveImage(item.ID)
 				if err != nil {
-					errors = append(errors, fmt.Sprintf("failed to remove image %s: %v", item.ID[:12], err))
+					errors = append(errors, fmt.Sprintf("failed to remove image %s: %v", truncateID(item.ID), err))
 				} else {
-					successCount++
 					imageCount++
 				}
 			case CleanupItemTypeContainer:
@@ -80,9 +89,8 @@ func PerformCleanup(cli *client.Client, items []CleanupItem) tea.Cmd {
 					Force: true,
 				})
 				if err != nil {
-					errors = append(errors, fmt.Sprintf("failed to remove container %s: %v", item.ID[:12], err))
+					errors = append(errors, fmt.Sprintf("failed to remove container %s: %v", truncateID(item.ID), err))
 				} else {
-					successCount++
 					containerCount++
 				}
 			}
@@ -92,32 +100,44 @@ func PerformCleanup(cli *client.Client, items []CleanupItem) tea.Cmd {
 			return ErrMsg{fmt.Errorf("cleanup errors: %v", errors)}
 		}
 
-		// Create success message
-		var message string
-		if successCount > 0 {
-			var parts []string
-			if imageCount > 0 {
-				if imageCount == 1 {
-					parts = append(parts, "1 image")
-				} else {
-					parts = append(parts, fmt.Sprintf("%d images", imageCount))
-				}
-			}
-			if containerCount > 0 {
-				if containerCount == 1 {
-					parts = append(parts, "1 container")
-				} else {
-					parts = append(parts, fmt.Sprintf("%d containers", containerCount))
-				}
-			}
-
-			if len(parts) == 1 {
-				message = fmt.Sprintf("Successfully deleted %s", parts[0])
-			} else {
-				message = fmt.Sprintf("Successfully deleted %s and %s", parts[0], parts[1])
-			}
-		}
-
-		return CleanupDoneMsg{Message: message}
+		return CleanupDoneMsg{Message: formatCleanupMessage(imageCount, containerCount)}
 	}
+}
+
+// formatCleanupMessage builds the human-readable success message shown after
+// a successful cleanup.
+func formatCleanupMessage(imageCount, containerCount int) string {
+	if imageCount == 0 && containerCount == 0 {
+		return ""
+	}
+
+	var parts []string
+	if imageCount > 0 {
+		if imageCount == 1 {
+			parts = append(parts, "1 image")
+		} else {
+			parts = append(parts, fmt.Sprintf("%d images", imageCount))
+		}
+	}
+	if containerCount > 0 {
+		if containerCount == 1 {
+			parts = append(parts, "1 container")
+		} else {
+			parts = append(parts, fmt.Sprintf("%d containers", containerCount))
+		}
+	}
+
+	if len(parts) == 1 {
+		return fmt.Sprintf("Successfully deleted %s", parts[0])
+	}
+	return fmt.Sprintf("Successfully deleted %s and %s", parts[0], parts[1])
+}
+
+// truncateID returns the first 12 characters of an ID, or the whole ID if
+// shorter than 12 characters.
+func truncateID(id string) string {
+	if len(id) < 12 {
+		return id
+	}
+	return id[:12]
 }
