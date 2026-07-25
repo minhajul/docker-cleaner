@@ -210,15 +210,6 @@ func (m *Model) getSelectionForCleanup() []docker.CleanupItem {
 	return items
 }
 
-// truncateID returns the first 12 characters of an ID, or the whole ID if
-// shorter than 12 characters.
-func truncateID(id string) string {
-	if len(id) < 12 {
-		return id
-	}
-	return id[:12]
-}
-
 func (m *Model) updateItems() {
 	m.items = []SelectableItem{}
 
@@ -236,7 +227,7 @@ func (m *Model) updateItems() {
 		m.items = append(m.items, SelectableItem{
 			ID:      img.ID,
 			Type:    ItemTypeImage,
-			Display: fmt.Sprintf("%s (ID: %s, Size: %s)", name, truncateID(img.ID), docker.HumanSize(img.Size)),
+			Display: fmt.Sprintf("%s (ID: %s, Size: %s)", name, docker.TruncateID(img.ID), docker.HumanSize(img.Size)),
 		})
 	}
 
@@ -258,7 +249,7 @@ func (m *Model) updateItems() {
 		m.items = append(m.items, SelectableItem{
 			ID:      container.ID,
 			Type:    ItemTypeContainer,
-			Display: fmt.Sprintf("%s (ID: %s, Image: %s, Size: %s)", name, truncateID(container.ID), container.Image, docker.HumanSize(container.SizeRw)),
+			Display: fmt.Sprintf("%s (ID: %s, Image: %s, Size: %s)", name, docker.TruncateID(container.ID), container.Image, docker.HumanSize(container.SizeRw)),
 		})
 	}
 }

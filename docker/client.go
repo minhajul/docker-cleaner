@@ -79,7 +79,7 @@ func PerformCleanup(cli *client.Client, items []CleanupItem) tea.Cmd {
 			case CleanupItemTypeImage:
 				err := cli.RemoveImage(item.ID)
 				if err != nil {
-					errors = append(errors, fmt.Sprintf("failed to remove image %s: %v", truncateID(item.ID), err))
+					errors = append(errors, fmt.Sprintf("failed to remove image %s: %v", TruncateID(item.ID), err))
 				} else {
 					imageCount++
 				}
@@ -89,7 +89,7 @@ func PerformCleanup(cli *client.Client, items []CleanupItem) tea.Cmd {
 					Force: true,
 				})
 				if err != nil {
-					errors = append(errors, fmt.Sprintf("failed to remove container %s: %v", truncateID(item.ID), err))
+					errors = append(errors, fmt.Sprintf("failed to remove container %s: %v", TruncateID(item.ID), err))
 				} else {
 					containerCount++
 				}
@@ -133,9 +133,9 @@ func formatCleanupMessage(imageCount, containerCount int) string {
 	return fmt.Sprintf("Successfully deleted %s and %s", parts[0], parts[1])
 }
 
-// truncateID returns the first 12 characters of an ID, or the whole ID if
+// TruncateID returns the first 12 characters of an ID, or the whole ID if
 // shorter than 12 characters.
-func truncateID(id string) string {
+func TruncateID(id string) string {
 	if len(id) < 12 {
 		return id
 	}

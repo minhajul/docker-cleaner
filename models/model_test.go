@@ -4,19 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"docker-cleaner/docker"
 	dockerClient "github.com/fsouza/go-dockerclient"
 )
-
-func TestInitialModelReturnsErrorWhenDockerUnreachable(t *testing.T) {
-	// This test does NOT need Docker to be running or not running.
-	// It tests the contract that InitialModel returns (Model{}, error) gracefully.
-	// We can't easily simulate "Docker unreachable" without env manipulation,
-	// so we test what we CAN: that the function returns without panicking/exiting.
-	_, err := InitialModel()
-	// err may be nil (Docker running) or non-nil (Docker not running). Both are valid.
-	// The KEY assertion is that the function returned instead of calling os.Exit.
-	_ = err // both outcomes acceptable
-}
 
 func TestTruncateID(t *testing.T) {
 	cases := []struct {
@@ -29,8 +19,8 @@ func TestTruncateID(t *testing.T) {
 		{"", ""},
 	}
 	for _, c := range cases {
-		if got := truncateID(c.in); got != c.want {
-			t.Errorf("truncateID(%q) = %q, want %q", c.in, got, c.want)
+		if got := docker.TruncateID(c.in); got != c.want {
+			t.Errorf("TruncateID(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }
