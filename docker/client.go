@@ -155,7 +155,7 @@ func ShortID(id string) string {
 // k3s, Docker Desktop's bundled k8s, etc.).
 var (
 	systemContainerPrefixes = []string{"k8s_"}
-	systemImageRepos       = []string{
+	systemImageRepos        = []string{
 		"gcr.io/k8s-minikube/",
 		"rancher/",
 		"k8s.gcr.io/",

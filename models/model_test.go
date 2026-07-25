@@ -13,7 +13,7 @@ func TestShortID(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"exactly12ccc", "exactly12ccc"}, // 12 chars -> returned whole
+		{"exactly12ccc", "exactly12ccc"},     // 12 chars -> returned whole
 		{"1234567890abcdef", "1234567890ab"}, // 16 chars -> first 12
 	}
 	for _, c := range cases {

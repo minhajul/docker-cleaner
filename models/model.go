@@ -43,7 +43,7 @@ type Model struct {
 func InitialModel() (Model, error) {
 	client, err := dockerClient.NewClientFromEnv()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to connect to Docker daemon: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Unable to connect to Docker daemon:", err)
 		return Model{}, err
 	}
 
@@ -59,6 +59,12 @@ func InitialModel() (Model, error) {
 }
 
 func (m Model) Init() tea.Cmd {
+	return m.refreshCmd()
+}
+
+// refreshCmd returns a tea.Cmd that fetches both images and containers
+// using the shared Docker client.
+func (m Model) refreshCmd() tea.Cmd {
 	return tea.Batch(docker.FetchDockerImages(m.dockerClient), docker.FetchDockerContainers(m.dockerClient))
 }
 
@@ -119,7 +125,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.selected = make(map[int]struct{})
 		m.errorMsg = "" // Clear any previous errors
 		m.successMsg = msg.Message
-		return m, tea.Batch(docker.FetchDockerImages(m.dockerClient), docker.FetchDockerContainers(m.dockerClient))
+		return m, m.refreshCmd()
 
 	case docker.ErrMsg:
 		m.errorMsg = msg.Error()
