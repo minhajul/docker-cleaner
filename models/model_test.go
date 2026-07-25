@@ -54,6 +54,30 @@ func TestGetSelectionForCleanup(t *testing.T) {
 	}
 }
 
+func TestUpdateItemsFiltersSystemImages(t *testing.T) {
+	m := Model{
+		images: []dockerClient.APIImages{
+			{ID: "abcdef1234567890", RepoTags: []string{"alpine:latest"}},
+			{ID: "kicbase1234567890", RepoTags: []string{"gcr.io/k8s-minikube/kicbase:v0.0.50"}},
+		},
+		containers: []dockerClient.APIContainers{
+			{ID: "container1234abcd", Names: []string{"/web"}, Image: "nginx"},
+			{ID: "pod1234567890ab", Names: []string{"k8s_POD_web_default_abc"}},
+		},
+	}
+	m.updateItems()
+
+	// k8s image filtered, k8s container filtered -> only user content shows
+	for _, it := range m.items {
+		if it.Type == ItemTypeImage && strings.Contains(it.Display, "kicbase") {
+			t.Errorf("system image should be filtered, got %q", it.Display)
+		}
+		if it.Type == ItemTypeContainer && strings.Contains(it.Display, "k8s_") {
+			t.Errorf("system container should be filtered, got %q", it.Display)
+		}
+	}
+}
+
 func TestUpdateItemsBuildsList(t *testing.T) {
 	m := Model{
 		images: []dockerClient.APIImages{
@@ -65,22 +89,50 @@ func TestUpdateItemsBuildsList(t *testing.T) {
 		},
 	}
 	m.updateItems()
-	// Expect: header, image1, image2, header, container1 = 5 items
-	if len(m.items) != 5 {
-		t.Fatalf("expected 5 items, got %d", len(m.items))
+
+	var headers, images, containers int
+	var imageDisplays, containerDisplays []string
+	for _, it := range m.items {
+		switch it.Type {
+		case ItemTypeHeader:
+			headers++
+		case ItemTypeImage:
+			images++
+			imageDisplays = append(imageDisplays, it.Display)
+		case ItemTypeContainer:
+			containers++
+			containerDisplays = append(containerDisplays, it.Display)
+		}
 	}
-	if m.items[0].Type != ItemTypeHeader {
-		t.Errorf("expected first item to be a header, got type %d", m.items[0].Type)
+
+	if headers != 2 {
+		t.Errorf("expected 2 headers, got %d", headers)
 	}
-	if m.items[1].Type != ItemTypeImage {
-		t.Errorf("expected second item to be an image, got type %d", m.items[1].Type)
+	if images != 2 {
+		t.Errorf("expected 2 images, got %d", images)
 	}
-	// orphan image (no RepoTags) should show "<none>"
-	if !strings.Contains(m.items[2].Display, "<none>") {
-		t.Errorf("expected orphan image to display <none>, got %q", m.items[2].Display)
+	if containers != 1 {
+		t.Errorf("expected 1 container, got %d", containers)
 	}
-	// container name should have leading slash stripped
-	if !strings.Contains(m.items[4].Display, "web") || strings.Contains(m.items[4].Display, "/web") {
-		t.Errorf("expected container name without leading slash, got %q", m.items[4].Display)
+
+	// Orphan image (no RepoTags) should display "<none>"
+	orphanFound := false
+	for _, d := range imageDisplays {
+		if strings.Contains(d, "<none>") {
+			orphanFound = true
+			break
+		}
+	}
+	if !orphanFound {
+		t.Errorf("expected orphan image to display <none>, got %v", imageDisplays)
+	}
+
+	// Container name should have leading slash stripped
+	if len(containerDisplays) != 1 {
+		t.Fatalf("expected 1 container display, got %d", len(containerDisplays))
+	}
+	d := containerDisplays[0]
+	if !strings.Contains(d, "web") || strings.Contains(d, "/web") {
+		t.Errorf("expected container name without leading slash, got %q", d)
 	}
 }
