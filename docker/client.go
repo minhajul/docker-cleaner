@@ -80,7 +80,7 @@ func PerformCleanup(cli *client.Client, items []CleanupItem) tea.Cmd {
 			case CleanupItemTypeImage:
 				err := cli.RemoveImage(item.ID)
 				if err != nil {
-					errors = append(errors, fmt.Sprintf("failed to remove image %s: %v", TruncateID(item.ID), err))
+					errors = append(errors, fmt.Sprintf("failed to remove image %s: %v", ShortID(item.ID), err))
 				} else {
 					imageCount++
 				}
@@ -90,7 +90,7 @@ func PerformCleanup(cli *client.Client, items []CleanupItem) tea.Cmd {
 					Force: true,
 				})
 				if err != nil {
-					errors = append(errors, fmt.Sprintf("failed to remove container %s: %v", TruncateID(item.ID), err))
+					errors = append(errors, fmt.Sprintf("failed to remove container %s: %v", ShortID(item.ID), err))
 				} else {
 					containerCount++
 				}
@@ -134,13 +134,20 @@ func formatCleanupMessage(imageCount, containerCount int) string {
 	return fmt.Sprintf("Successfully deleted %s and %s", parts[0], parts[1])
 }
 
-// TruncateID returns the first 12 characters of an ID, or the whole ID if
-// shorter than 12 characters.
-func TruncateID(id string) string {
-	if len(id) < 12 {
-		return id
+// shortIDLength is the standard Docker short ID length (the first N hex chars
+// of a SHA256). Used by ShortID.
+const shortIDLength = 12
+
+// ShortID returns the canonical short form of a Docker ID (first
+// shortIDLength hex characters). Panics if the ID is shorter than
+// shortIDLength, since a corrupt short ID indicates bad data from the
+// Docker daemon and should surface loudly rather than be silently passed
+// through.
+func ShortID(id string) string {
+	if len(id) < shortIDLength {
+		panic(fmt.Sprintf("docker: ShortID called with %d-char id %q (need >= %d)", len(id), id, shortIDLength))
 	}
-	return id[:12]
+	return id[:shortIDLength]
 }
 
 // System container and image prefixes. Anything matching is hidden from the

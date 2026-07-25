@@ -8,21 +8,28 @@ import (
 	dockerClient "github.com/fsouza/go-dockerclient"
 )
 
-func TestTruncateID(t *testing.T) {
+func TestShortID(t *testing.T) {
 	cases := []struct {
 		in   string
 		want string
 	}{
-		{"short", "short"},
-		{"exactly12c", "exactly12c"},
+		{"exactly12ccc", "exactly12ccc"}, // 12 chars -> returned whole
 		{"1234567890abcdef", "1234567890ab"}, // 16 chars -> first 12
-		{"", ""},
 	}
 	for _, c := range cases {
-		if got := docker.TruncateID(c.in); got != c.want {
-			t.Errorf("TruncateID(%q) = %q, want %q", c.in, got, c.want)
+		if got := docker.ShortID(c.in); got != c.want {
+			t.Errorf("ShortID(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
+}
+
+func TestShortIDPanicsOnShortInput(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("ShortID should panic on short input")
+		}
+	}()
+	docker.ShortID("short")
 }
 
 func TestGetSelectionForCleanup(t *testing.T) {

@@ -230,7 +230,7 @@ func (m *Model) updateItems() {
 		m.items = append(m.items, SelectableItem{
 			ID:      img.ID,
 			Type:    ItemTypeImage,
-			Display: fmt.Sprintf("%s (ID: %s, Size: %s)", name, docker.TruncateID(img.ID), docker.HumanSize(img.Size)),
+			Display: fmt.Sprintf("%s (ID: %s, Size: %s)", name, docker.ShortID(img.ID), docker.HumanSize(img.Size)),
 		})
 	}
 
@@ -252,7 +252,7 @@ func (m *Model) updateItems() {
 		m.items = append(m.items, SelectableItem{
 			ID:      container.ID,
 			Type:    ItemTypeContainer,
-			Display: fmt.Sprintf("%s (ID: %s, Image: %s, Size: %s)", name, docker.TruncateID(container.ID), container.Image, docker.HumanSize(container.SizeRw)),
+			Display: fmt.Sprintf("%s (ID: %s, Image: %s, Size: %s)", name, docker.ShortID(container.ID), container.Image, docker.HumanSize(container.SizeRw)),
 		})
 	}
 }
