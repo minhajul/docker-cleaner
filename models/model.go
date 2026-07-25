@@ -2,11 +2,11 @@ package models
 
 import (
 	"fmt"
-	"github.com/charmbracelet/lipgloss"
 	"os"
 	"strings"
 
 	"docker-cleaner/docker"
+	"docker-cleaner/styles"
 	"github.com/charmbracelet/bubbletea"
 	dockerClient "github.com/fsouza/go-dockerclient"
 )
@@ -37,80 +37,29 @@ type Model struct {
 	cleaning     bool
 }
 
-// Define styles
-var (
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#7C3AED")).
-			MarginBottom(1)
-
-	headerStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#3B82F6")).
-			MarginTop(1)
-
-	cursorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#F59E0B")).
-			Bold(true)
-
-	selectedCheckboxStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#10B981")).
-				Bold(true)
-
-	unselectedCheckboxStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#6B7280"))
-
-	itemStyle = lipgloss.NewStyle().
-			PaddingLeft(1)
-
-	selectedItemStyle = lipgloss.NewStyle().
-				PaddingLeft(1).
-				Foreground(lipgloss.Color("#10B981"))
-
-	errorMessageStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FAFAFA")).
-				Background(lipgloss.Color("#EF4444")).
-				Padding(0, 1)
-
-	successMessageStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FAFAFA")).
-				Background(lipgloss.Color("#10B981")).
-				Padding(0, 1).
-				MarginTop(1)
-
-	instructionsStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#6B7280")).
-				MarginTop(1)
-
-	cleaningStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#F59E0B")).
-			Bold(true).
-			MarginTop(1)
-)
-
-func InitialModel() Model {
+// InitialModel creates a new Model connected to the Docker daemon. If Docker
+// cannot be reached, an error is returned (and a diagnostic is written to
+// stderr). The caller is responsible for exiting the program on error.
+func InitialModel() (Model, error) {
 	client, err := dockerClient.NewClientFromEnv()
-
 	if err != nil {
-		fmt.Printf("Unable to connect to Docker daemon: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(os.Stderr, "Unable to connect to Docker daemon: %v\n", err)
+		return Model{}, err
 	}
 
-	err = client.Ping()
-
-	if err != nil {
-		fmt.Println(errorMessageStyle.Render("Docker is not running or unreachable. Please start Docker and try again."))
-		os.Exit(1)
+	if err := client.Ping(); err != nil {
+		fmt.Fprintln(os.Stderr, styles.ErrorMessage.Render("Docker is not running or unreachable. Please start Docker and try again."))
+		return Model{}, err
 	}
 
 	return Model{
 		selected:     make(map[int]struct{}),
 		dockerClient: client,
-	}
+	}, nil
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(docker.FetchDockerImages, docker.FetchDockerContainers)
+	return tea.Batch(docker.FetchDockerImages(m.dockerClient), docker.FetchDockerContainers(m.dockerClient))
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -170,7 +119,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.selected = make(map[int]struct{})
 		m.errorMsg = "" // Clear any previous errors
 		m.successMsg = msg.Message
-		return m, tea.Batch(docker.FetchDockerImages, docker.FetchDockerContainers)
+		return m, tea.Batch(docker.FetchDockerImages(m.dockerClient), docker.FetchDockerContainers(m.dockerClient))
 
 	case docker.ErrMsg:
 		m.errorMsg = msg.Error()
@@ -185,7 +134,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	var s strings.Builder
 
-	s.WriteString(titleStyle.Render("🐳 Docker Cleaner"))
+	s.WriteString(styles.Title.Render("🐳 Docker Cleaner"))
 	s.WriteString("\n")
 
 	for i, item := range m.items {
@@ -193,7 +142,7 @@ func (m Model) View() string {
 
 		// Cursor indicator
 		if m.cursor == i {
-			line.WriteString(cursorStyle.Render("▶ "))
+			line.WriteString(styles.Cursor.Render("▶ "))
 		} else {
 			line.WriteString("  ")
 		}
@@ -201,21 +150,21 @@ func (m Model) View() string {
 		// Handle different item types
 		if item.Type == ItemTypeHeader {
 			// Headers don't have checkboxes
-			line.WriteString(headerStyle.Render(item.Display))
+			line.WriteString(styles.Header.Render(item.Display))
 		} else {
 			// Checkbox for selectable items
 			_, isSelected := m.selected[i]
 			if isSelected {
-				line.WriteString(selectedCheckboxStyle.Render("✓ "))
+				line.WriteString(styles.SelectedCheckbox.Render("✓ "))
 			} else {
-				line.WriteString(unselectedCheckboxStyle.Render("☐ "))
+				line.WriteString(styles.UnselectedCheckbox.Render("☐ "))
 			}
 
 			// Item text with appropriate styling
 			if isSelected {
-				line.WriteString(selectedItemStyle.Render(item.Display))
+				line.WriteString(styles.SelectedItem.Render(item.Display))
 			} else {
-				line.WriteString(itemStyle.Render(item.Display))
+				line.WriteString(styles.Item.Render(item.Display))
 			}
 		}
 
@@ -224,22 +173,22 @@ func (m Model) View() string {
 	}
 
 	// Instructions
-	s.WriteString(instructionsStyle.Render("\n↑/↓ or j/k: navigate • space: select/deselect • d: delete selected • q: quit"))
+	s.WriteString(styles.Instructions.Render("\n↑/↓ or j/k: navigate • space: select/deselect • d: delete selected • q: quit"))
 
 	// Status messages
 	if m.cleaning {
 		s.WriteString("\n")
-		s.WriteString(cleaningStyle.Render("🔄 Cleaning up..."))
+		s.WriteString(styles.Cleaning.Render("🔄 Cleaning up..."))
 	}
 
 	if m.successMsg != "" {
 		s.WriteString("\n")
-		s.WriteString(successMessageStyle.Render("✅ " + m.successMsg))
+		s.WriteString(styles.SuccessMessage.Render("✅ " + m.successMsg))
 	}
 
 	if m.errorMsg != "" {
 		s.WriteString("\n")
-		s.WriteString(errorMessageStyle.Render("❌ " + m.errorMsg))
+		s.WriteString(styles.ErrorMessage.Render("❌ " + m.errorMsg))
 	}
 
 	return s.String()
@@ -261,6 +210,15 @@ func (m *Model) getSelectionForCleanup() []docker.CleanupItem {
 	return items
 }
 
+// truncateID returns the first 12 characters of an ID, or the whole ID if
+// shorter than 12 characters.
+func truncateID(id string) string {
+	if len(id) < 12 {
+		return id
+	}
+	return id[:12]
+}
+
 func (m *Model) updateItems() {
 	m.items = []SelectableItem{}
 
@@ -278,7 +236,7 @@ func (m *Model) updateItems() {
 		m.items = append(m.items, SelectableItem{
 			ID:      img.ID,
 			Type:    ItemTypeImage,
-			Display: fmt.Sprintf("%s (ID: %s)", name, img.ID[:12]),
+			Display: fmt.Sprintf("%s (ID: %s, Size: %s)", name, truncateID(img.ID), docker.HumanSize(img.Size)),
 		})
 	}
 
@@ -300,7 +258,7 @@ func (m *Model) updateItems() {
 		m.items = append(m.items, SelectableItem{
 			ID:      container.ID,
 			Type:    ItemTypeContainer,
-			Display: fmt.Sprintf("%s (ID: %s, Image: %s)", name, container.ID[:12], container.Image),
+			Display: fmt.Sprintf("%s (ID: %s, Image: %s, Size: %s)", name, truncateID(container.ID), container.Image, docker.HumanSize(container.SizeRw)),
 		})
 	}
 }
