@@ -28,7 +28,7 @@ type SelectableItem struct {
 type Model struct {
 	items        []SelectableItem
 	cursor       int
-	selected     map[int]struct{}
+	selected     map[string]struct{} // Docker IDs of selected items
 	dockerClient docker.API
 	images       []dockerClient.APIImages
 	containers   []dockerClient.APIContainers
@@ -53,7 +53,7 @@ func InitialModel() (Model, error) {
 	}
 
 	return Model{
-		selected:     make(map[int]struct{}),
+		selected:     make(map[string]struct{}),
 		dockerClient: client,
 	}, nil
 }
@@ -88,11 +88,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter", " ":
 			// Only allow selection of non-header items
 			if m.cursor < len(m.items) && m.items[m.cursor].Type != ItemTypeHeader {
-				_, ok := m.selected[m.cursor]
-				if ok {
-					delete(m.selected, m.cursor)
+				id := m.items[m.cursor].ID
+				if _, ok := m.selected[id]; ok {
+					delete(m.selected, id)
 				} else {
-					m.selected[m.cursor] = struct{}{}
+					if m.selected == nil {
+						m.selected = make(map[string]struct{})
+					}
+					m.selected[id] = struct{}{}
 				}
 			}
 		case "d": // Delete selected items
@@ -101,8 +104,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.errorMsg = ""
 				m.successMsg = ""
 				m.cleaning = true
+				// Snapshot now: the command runs on another goroutine and
+				// must not read m.selected while Update mutates it.
+				items := m.getSelectionForCleanup()
 				return m, func() tea.Msg {
-					return docker.CleanupMsg{ItemsToClean: m.getSelectionForCleanup()}
+					return docker.CleanupMsg{ItemsToClean: items}
 				}
 			}
 		}
@@ -122,7 +128,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case docker.CleanupDoneMsg:
 		m.cleaning = false
-		m.selected = make(map[int]struct{})
+		m.selected = make(map[string]struct{})
 		m.errorMsg = "" // Clear any previous errors
 		m.successMsg = msg.Message
 		return m, m.refreshCmd()
@@ -159,7 +165,7 @@ func (m Model) View() string {
 			line.WriteString(styles.Header.Render(item.Display))
 		} else {
 			// Checkbox for selectable items
-			_, isSelected := m.selected[i]
+			_, isSelected := m.selected[item.ID]
 			if isSelected {
 				line.WriteString(styles.SelectedCheckbox.Render("✓ "))
 			} else {
@@ -200,12 +206,18 @@ func (m Model) View() string {
 	return s.String()
 }
 
+// getSelectionForCleanup returns the selected items, containers first so an
+// image is never removed before a container that uses it, and otherwise in
+// list order. Iterating m.items rather than the selection map keeps the order
+// deterministic.
 func (m *Model) getSelectionForCleanup() []docker.CleanupItem {
 	var items []docker.CleanupItem
-	for i := range m.selected {
-		if i < len(m.items) {
-			item := m.items[i]
-			if item.Type != ItemTypeHeader {
+	for _, typ := range []ItemType{ItemTypeContainer, ItemTypeImage} {
+		for _, item := range m.items {
+			if item.Type != typ {
+				continue
+			}
+			if _, ok := m.selected[item.ID]; ok {
 				items = append(items, docker.CleanupItem{
 					ID:   item.ID,
 					Type: docker.CleanupItemType(item.Type),
@@ -214,6 +226,25 @@ func (m *Model) getSelectionForCleanup() []docker.CleanupItem {
 		}
 	}
 	return items
+}
+
+// reconcileSelection keeps the selection and cursor consistent with a freshly
+// rebuilt m.items: selected IDs that are no longer listed are dropped, and the
+// cursor is clamped into range (0 when the list is empty).
+func (m *Model) reconcileSelection() {
+	listed := make(map[string]struct{}, len(m.items))
+	for _, item := range m.items {
+		if item.Type != ItemTypeHeader {
+			listed[item.ID] = struct{}{}
+		}
+	}
+	for id := range m.selected {
+		if _, ok := listed[id]; !ok {
+			delete(m.selected, id)
+		}
+	}
+
+	m.cursor = max(0, min(m.cursor, len(m.items)-1))
 }
 
 func (m *Model) updateItems() {
@@ -268,4 +299,6 @@ func (m *Model) updateItems() {
 			Display: fmt.Sprintf("%s (ID: %s, Image: %s, State: %s, Size: %s)", name, docker.ShortID(container.ID), container.Image, state, size),
 		})
 	}
+
+	m.reconcileSelection()
 }

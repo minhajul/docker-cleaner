@@ -47,7 +47,7 @@ func TestGetSelectionForCleanup(t *testing.T) {
 			{ID: "img1", Type: ItemTypeImage},
 			{ID: "ctr1", Type: ItemTypeContainer},
 		},
-		selected: map[int]struct{}{0: {}, 1: {}},
+		selected: map[string]struct{}{"img1": {}, "ctr1": {}},
 	}
 	items := m.getSelectionForCleanup()
 	if len(items) != 2 {
@@ -56,7 +56,7 @@ func TestGetSelectionForCleanup(t *testing.T) {
 	// headers should be filtered out
 	m.items = append(m.items, SelectableItem{ID: "h", Type: ItemTypeHeader})
 	// add another selection that hits the header — should be filtered
-	m.selected[2] = struct{}{}
+	m.selected["h"] = struct{}{}
 	items = m.getSelectionForCleanup()
 	if len(items) != 2 {
 		t.Errorf("expected headers to be filtered, got %d items", len(items))

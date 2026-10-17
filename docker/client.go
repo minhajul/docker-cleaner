@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbletea"
@@ -84,8 +85,11 @@ func FetchDockerContainers(cli API) tea.Cmd {
 	}
 }
 
-// PerformCleanup removes the selected Docker images and containers.
+// PerformCleanup removes the selected Docker images and containers. All
+// containers are removed before any image, since Docker refuses to remove an
+// image that a container still uses; the order within each type is kept.
 func PerformCleanup(cli API, items []CleanupItem) tea.Cmd {
+	items = containersFirst(items)
 	return func() tea.Msg {
 		var errors []string
 		var imageCount, containerCount int
@@ -129,6 +133,22 @@ func containerRemoveError(id string, err error) string {
 		return fmt.Sprintf("container %s is running; stop it first", ShortID(id))
 	}
 	return fmt.Sprintf("failed to remove container %s: %v", ShortID(id), err)
+}
+
+// containersFirst returns a copy of items with every container ahead of every
+// image, preserving the relative order within each type.
+func containersFirst(items []CleanupItem) []CleanupItem {
+	sorted := slices.Clone(items)
+	slices.SortStableFunc(sorted, func(a, b CleanupItem) int {
+		isImage := func(it CleanupItem) int {
+			if it.Type == CleanupItemTypeImage {
+				return 1
+			}
+			return 0
+		}
+		return isImage(a) - isImage(b)
+	})
+	return sorted
 }
 
 // formatCleanupMessage builds the human-readable success message shown after
