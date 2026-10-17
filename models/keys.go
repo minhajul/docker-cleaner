@@ -28,6 +28,21 @@ type keyMap struct {
 	// ShowProtected reveals or hides protected resources (system ones and
 	// those on the config file's protect-list).
 	ShowProtected key.Binding
+
+	// Search opens the search input (see searchKeyMap); ClearFilters turns
+	// every filter and the search off.
+	Search       key.Binding
+	ClearFilters key.Binding
+	// The filter toggles; see filter.Options. FilterOlderThan cycles
+	// through olderThanSteps.
+	FilterDangling  key.Binding
+	FilterStopped   key.Binding
+	FilterUnused    key.Binding
+	FilterOlderThan key.Binding
+
+	// Sort cycles the order of the rows within each section; see
+	// filter.SortOrder.
+	Sort key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -93,6 +108,34 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("p"),
 			key.WithHelp("p", "show/hide protected"),
 		),
+		Search: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "search"),
+		),
+		ClearFilters: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "clear filters"),
+		),
+		FilterDangling: key.NewBinding(
+			key.WithKeys("D"),
+			key.WithHelp("D", "dangling images"),
+		),
+		FilterStopped: key.NewBinding(
+			key.WithKeys("S"),
+			key.WithHelp("S", "stopped containers"),
+		),
+		FilterUnused: key.NewBinding(
+			key.WithKeys("U"),
+			key.WithHelp("U", "unused"),
+		),
+		FilterOlderThan: key.NewBinding(
+			key.WithKeys("O"),
+			key.WithHelp("O", "older than 7/30/90d"),
+		),
+		Sort: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "sort: size/age/name"),
+		),
 	}
 }
 
@@ -112,6 +155,9 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.PageUp, k.PageDown, k.Home, k.End},
 		{k.ForceRetry},
 		{k.ShowProtected},
+		// One column, taller than the others, rather than two: the full
+		// help is already wider than most terminals.
+		{k.Search, k.FilterDangling, k.FilterStopped, k.FilterUnused, k.FilterOlderThan, k.ClearFilters, k.Sort},
 	}
 }
 
@@ -159,5 +205,42 @@ func (k confirmKeyMap) ShortHelp() []key.Binding {
 // FullHelp implements help.KeyMap. The dialog has so few keys that the full
 // view is the short one.
 func (k confirmKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{k.ShortHelp()}
+}
+
+// searchKeyMap holds the keys of the search input that do more than edit the
+// query. While the input is open, Update sends every other key to it and the
+// footer renders these in place of keyMap.
+type searchKeyMap struct {
+	Apply  key.Binding
+	Cancel key.Binding
+	Quit   key.Binding
+}
+
+func defaultSearchKeyMap() searchKeyMap {
+	return searchKeyMap{
+		Apply: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "keep search"),
+		),
+		Cancel: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "clear search"),
+		),
+		// Unlike keyMap.Quit, not q: it is typed into the query.
+		Quit: key.NewBinding(
+			key.WithKeys("ctrl+c"),
+			key.WithHelp("ctrl+c", "quit"),
+		),
+	}
+}
+
+// ShortHelp implements help.KeyMap.
+func (k searchKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Apply, k.Cancel, k.Quit}
+}
+
+// FullHelp implements help.KeyMap. The full view is the short one.
+func (k searchKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{k.ShortHelp()}
 }

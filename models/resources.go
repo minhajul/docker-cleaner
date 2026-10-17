@@ -3,9 +3,10 @@ package models
 import (
 	"fmt"
 	"strings"
+	"time"
 
-	dockerClient "github.com/fsouza/go-dockerclient"
 	"github.com/minhajul/docker-cleaner/docker"
+	"github.com/minhajul/docker-cleaner/filter"
 )
 
 // Section headers of the resources listed after images and containers. Each
@@ -17,22 +18,16 @@ const (
 )
 
 // volumeRows returns the Volumes section: its header and one row per listed
-// volume (see listedVolumes), or nothing if there are none. Sizes and use
-// counts come from the daemon's disk usage; until it arrives, or if it
-// failed, a volume's size is unknown and its use is counted from the listed
-// containers' mounts.
+// volume (see listedVolumes) that passes the filters and the search, or
+// nothing if there are none. Sizes and use counts come from the daemon's disk
+// usage; until it arrives, or if it failed, a volume's size is unknown and
+// its use is counted from the containers' mounts (see usage).
 func (m *Model) volumeRows() []SelectableItem {
-	volumes := m.listedVolumes()
-	if len(volumes) == 0 {
-		return nil
-	}
+	u := m.usage()
+	now := m.clock()
+	volumes := m.filters.Volumes(m.listedVolumes(), u, now)
 
-	header := volumesHeader
-	if m.diskUsageErr != nil {
-		header += " (sizes unavailable)"
-	}
-	rows := []SelectableItem{{Type: ItemTypeHeader, Display: header}}
-
+	var rows []SelectableItem
 	for _, v := range volumes {
 		usage, known := m.diskUsage.Volumes[v.Name]
 		size := "unknown"
@@ -41,10 +36,7 @@ func (m *Model) volumeRows() []SelectableItem {
 			bytes = usage.Size
 			size = docker.HumanSize(bytes)
 		}
-		refs := int64(m.volumeMounts(v.Name))
-		if known && usage.RefCount >= 0 {
-			refs = usage.RefCount
-		}
+		refs := u.VolumeRefs(v.Name)
 		use := "Unused"
 		if refs > 0 {
 			use = "Used by: " + plural(int(refs), "container")
@@ -54,74 +46,54 @@ func (m *Model) volumeRows() []SelectableItem {
 		rows = append(rows, SelectableItem{
 			ID:      v.Name,
 			Type:    ItemTypeVolume,
-			Display: fmt.Sprintf("%s (Driver: %s, Size: %s, %s)", name, v.Driver, size, use),
+			Display: fmt.Sprintf("%s (Driver: %s, Size: %s, %s%s)", name, v.Driver, size, use, ageSuffix(v.CreatedAt, now)),
 			Size:    bytes,
 			Name:    name,
+			Created: v.CreatedAt,
 		})
 	}
-	return rows
-}
 
-// volumeMounts counts the listed containers, running or not, that mount the
-// volume called name.
-func (m *Model) volumeMounts(name string) int {
-	n := 0
-	for _, c := range m.containers {
-		for _, mount := range c.Mounts {
-			if mount.Type == "volume" && mount.Name == name {
-				n++
-				break
-			}
-		}
+	header := volumesHeader
+	if m.diskUsageErr != nil {
+		header += " (sizes unavailable)"
 	}
-	return n
+	return m.section(header, rows)
 }
 
 // networkRows returns the Networks section: its header and one row per
-// listed network (see listedNetworks), or nothing if there are none.
-// Networks free no measurable space, so their Size is 0.
+// listed network (see listedNetworks) that passes the filters and the
+// search, or nothing if there are none. Networks free no measurable space,
+// so their Size is 0.
 func (m *Model) networkRows() []SelectableItem {
-	networks := m.listedNetworks()
-	if len(networks) == 0 {
-		return nil
-	}
+	u := m.usage()
+	networks := m.filters.Networks(m.listedNetworks(), u)
 
-	rows := []SelectableItem{{Type: ItemTypeHeader, Display: networksHeader}}
+	var rows []SelectableItem
 	for _, n := range networks {
 		rows = append(rows, SelectableItem{
 			ID:   n.ID,
 			Type: ItemTypeNetwork,
 			Display: fmt.Sprintf("%s (ID: %s, Driver: %s, Containers: %d)",
-				n.Name, docker.ShortID(n.ID), n.Driver, m.networkContainers(n)),
+				n.Name, docker.ShortID(n.ID), n.Driver, u.NetworkContainers(n)),
 			Name: n.Name,
 		})
 	}
-	return rows
+	return m.section(networksHeader, rows)
 }
 
-// networkContainers counts the containers attached to n. The daemon's
-// network list leaves them out, so they are taken from the listed
-// containers' network settings, along with any the network does report.
-func (m *Model) networkContainers(n dockerClient.Network) int {
-	attached := make(map[string]struct{}, len(n.Containers))
-	for id := range n.Containers {
-		attached[id] = struct{}{}
-	}
-	for _, c := range m.containers {
-		for name, settings := range c.Networks.Networks {
-			if settings.NetworkID == n.ID || (settings.NetworkID == "" && name == n.Name) {
-				attached[c.ID] = struct{}{}
-			}
-		}
-	}
-	return len(attached)
+// usage tells which resources the fetched containers, running or not and
+// listed or not, use. Volume use counts come from the daemon's disk usage
+// when it reports them, and otherwise from the containers' mounts.
+func (m *Model) usage() filter.Usage {
+	return filter.NewUsage(m.containers, m.diskUsage.Volumes)
 }
 
 // buildCacheRows returns the Build cache section: its header and a single
 // row standing for the whole cache, e.g. "Build cache: 312 entries, 4.1 GB
 // reclaimable". There is nothing to show while the disk usage has not
-// arrived or the cache has nothing reclaimable; if the disk usage could not
-// be fetched, the header alone says so.
+// arrived, the cache has nothing reclaimable or the search leaves the row
+// out; if the disk usage could not be fetched, the header alone says so.
+// The filters leave the build cache alone.
 func (m *Model) buildCacheRows() []SelectableItem {
 	if m.diskUsageErr != nil {
 		return []SelectableItem{{
@@ -137,16 +109,33 @@ func (m *Model) buildCacheRows() []SelectableItem {
 	if bc.Entries == 1 {
 		entries = "1 entry"
 	}
-	return []SelectableItem{
-		{Type: ItemTypeHeader, Display: buildCacheHeader},
-		{
-			ID:      docker.BuildCacheID,
-			Type:    ItemTypeBuildCache,
-			Display: fmt.Sprintf("Build cache: %s, %s reclaimable", entries, docker.HumanSize(bc.Reclaimable)),
-			Size:    bc.Reclaimable,
-			Name:    "build cache",
-		},
+	return m.section(buildCacheHeader, []SelectableItem{{
+		ID:      docker.BuildCacheID,
+		Type:    ItemTypeBuildCache,
+		Display: fmt.Sprintf("Build cache: %s, %s reclaimable", entries, docker.HumanSize(bc.Reclaimable)),
+		Size:    bc.Reclaimable,
+		Name:    "build cache",
+	}})
+}
+
+// section returns a section that is left out while it has nothing to show:
+// its header followed by the rows that pass the search, in the sort order
+// (see shown), or nothing if none do.
+func (m *Model) section(header string, rows []SelectableItem) []SelectableItem {
+	rows = m.shown(rows)
+	if len(rows) == 0 {
+		return nil
 	}
+	return append([]SelectableItem{{Type: ItemTypeHeader, Display: header}}, rows...)
+}
+
+// ageSuffix is the age appended to a row's details, e.g. ", Created: 3 weeks
+// ago", or "" if created is unknown.
+func ageSuffix(created, now time.Time) string {
+	if created.IsZero() {
+		return ""
+	}
+	return ", Created: " + docker.HumanAge(created, now)
 }
 
 // volumeName shortens an anonymous volume's name, a random 64-character hex

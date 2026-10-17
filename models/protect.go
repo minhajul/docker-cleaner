@@ -98,18 +98,7 @@ func (m *Model) isProtected(item SelectableItem) bool {
 // toggleShowProtected reveals or hides the protected rows. The cursor stays
 // on the row it was on; if that row is hidden, it stays at the same index.
 func (m *Model) toggleShowProtected() {
-	key, ok := m.rowKey(m.cursor)
-	m.showProtected = !m.showProtected
-	m.updateItems()
-	if !ok {
-		return
-	}
-	for i := range m.items {
-		if k, _ := m.rowKey(i); k == key {
-			m.cursor = i
-			return
-		}
-	}
+	m.relist(func() { m.showProtected = !m.showProtected })
 }
 
 // rowKey identifies row i across rebuilds of m.items: by ID for an item and
