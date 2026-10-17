@@ -57,9 +57,25 @@ var (
 			Foreground(lipgloss.Color("#6B7280")).
 			MarginTop(1)
 
+	// Confirm is the style for the delete confirmation question.
+	Confirm = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#F59E0B")).
+		Bold(true)
+
+	// Warning is the style for cautions shown alongside a prompt or result,
+	// such as running containers in the confirmation dialog.
+	Warning = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#EF4444"))
+
 	// Cleaning is the style for the "in progress" indicator.
 	Cleaning = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#F59E0B")).
 			Bold(true).
 			MarginTop(1)
+
+	// ScrollIndicator is the style for the "↑ N more" / "↓ N more" hints
+	// shown when list rows are scrolled out of view.
+	ScrollIndicator = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6B7280")).
+			Faint(true)
 )

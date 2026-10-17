@@ -63,7 +63,7 @@ func containers(ids ...string) docker.ContainersFetchedMsg {
 }
 
 func TestSelectionFollowsIDAcrossRefresh(t *testing.T) {
-	m := Model{selected: make(map[string]struct{})}
+	m := newModel(nil)
 	m = updated(m, images(imgA, imgB))
 	m = toggle(t, m, imgB)
 
@@ -83,7 +83,7 @@ func TestSelectionFollowsIDAcrossRefresh(t *testing.T) {
 }
 
 func TestToggleDeselectsByIDAfterRefresh(t *testing.T) {
-	m := Model{selected: make(map[string]struct{})}
+	m := newModel(nil)
 	m = updated(m, images(imgA))
 	m = toggle(t, m, imgA)
 
@@ -96,7 +96,7 @@ func TestToggleDeselectsByIDAfterRefresh(t *testing.T) {
 }
 
 func TestSelectionDropsVanishedIDs(t *testing.T) {
-	m := Model{selected: make(map[string]struct{})}
+	m := newModel(nil)
 	m = updated(m, images(imgA, imgB))
 	m = updated(m, containers(ctrX))
 	for _, id := range []string{imgA, imgB, ctrX} {
@@ -125,7 +125,7 @@ func TestCursorClampsWhenListShrinks(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			m := Model{selected: make(map[string]struct{})}
+			m := newModel(nil)
 			m = updated(m, images(imgA, imgB, imgC))
 			m.cursor = len(m.items) - 1
 
@@ -140,7 +140,7 @@ func TestCursorClampsWhenListShrinks(t *testing.T) {
 
 func TestGetSelectionForCleanupContainersFirst(t *testing.T) {
 	const ctrY = "yyyyyyyyyyyyyyyy"
-	m := Model{selected: make(map[string]struct{})}
+	m := newModel(nil)
 	m = updated(m, images(imgA, imgB))
 	m = updated(m, containers(ctrX, ctrY))
 	for _, id := range []string{imgB, ctrY, imgA, ctrX} {
@@ -160,7 +160,9 @@ func TestGetSelectionForCleanupContainersFirst(t *testing.T) {
 }
 
 func TestReconcileSelectionEmptyList(t *testing.T) {
-	m := Model{cursor: 5, selected: map[string]struct{}{imgA: {}}}
+	m := newModel(nil)
+	m.cursor = 5
+	m.selected[imgA] = struct{}{}
 	m.reconcileSelection()
 	if m.cursor != 0 {
 		t.Errorf("cursor = %d, want 0 for an empty list", m.cursor)
