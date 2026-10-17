@@ -52,3 +52,12 @@ func hasSystemLabel(labels map[string]string) bool {
 	}
 	return false
 }
+
+// ShortVolumeName shortens an anonymous volume's name, a random 64-character
+// hex string, to a short ID (see ShortID); other names are kept whole.
+func ShortVolumeName(name string) string {
+	if len(name) == 64 && strings.Trim(name, "0123456789abcdef") == "" {
+		return ShortID(name)
+	}
+	return name
+}

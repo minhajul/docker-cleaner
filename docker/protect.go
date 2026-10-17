@@ -145,6 +145,36 @@ func (p Protector) ProtectsContainer(c client.APIContainers) bool {
 	return p.ContainerReason(c) != NotProtected
 }
 
+// ProtectedImages returns why each protected image among images is
+// protected, keyed by image ID; images that may be deleted are absent. On top
+// of ImageReason, an image is protected (ReasonUsedByProtected) while a
+// protected container among containers was created from it. Pass every
+// container the daemon lists, running or not, so that none is missed.
+//
+// The TUI and the prune command both use it, so they protect the same images.
+func (p Protector) ProtectedImages(images []client.APIImages, containers []client.APIContainers) map[string]Reason {
+	var protectedRefs []string
+	for _, c := range containers {
+		if p.ContainerReason(c) != NotProtected {
+			protectedRefs = append(protectedRefs, c.Image)
+		}
+	}
+
+	reasons := make(map[string]Reason)
+	for _, img := range images {
+		r := p.ImageReason(img)
+		if r == NotProtected && slices.ContainsFunc(protectedRefs, func(ref string) bool {
+			return ImageMatchesRef(img, ref)
+		}) {
+			r = ReasonUsedByProtected
+		}
+		if r != NotProtected {
+			reasons[img.ID] = r
+		}
+	}
+	return reasons
+}
+
 // matchesAny reports whether any user pattern matches any of names.
 func (p Protector) matchesAny(names ...string) bool {
 	for _, pat := range p.patterns {

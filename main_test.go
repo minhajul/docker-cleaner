@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -64,7 +65,7 @@ func TestParseFlagsHelp(t *testing.T) {
 			if !exit || code != 0 {
 				t.Fatalf("parseFlags(%q) = (%d, %v), want (0, true)", arg, code, exit)
 			}
-			for _, want := range []string{"Usage:", "--version", "--help", "--config", "config.yaml", "Keys:", "Quit"} {
+			for _, want := range []string{"Usage:", "--version", "--help", "--config", "config.yaml", "Keys:", "Quit", "prune", "prune --help"} {
 				if !strings.Contains(stdout.String(), want) {
 					t.Errorf("help output lacks %q:\n%s", want, stdout.String())
 				}
@@ -110,6 +111,42 @@ func TestParseFlagsNone(t *testing.T) {
 	}
 	if stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Errorf("unexpected output: stdout %q, stderr %q", stdout.String(), stderr.String())
+	}
+}
+
+func TestParseFlagsPrune(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{"alone", []string{"prune"}, []string{}},
+		{"with flags", []string{"prune", "--dangling", "--dry-run"}, []string{"--dangling", "--dry-run"}},
+		// Flags that mean something to the root command are the prune
+		// command's after "prune".
+		{"help", []string{"prune", "--help"}, []string{"--help"}},
+		{"version", []string{"prune", "--version"}, []string{"--version"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			opts, code, exit := parseFlags(tt.args, &stdout, &stderr)
+			if exit || code != 0 || !opts.prune {
+				t.Fatalf("parseFlags(%q) = (%+v, %d, %v), want the prune command", tt.args, opts, code, exit)
+			}
+			if !slices.Equal(opts.pruneArgs, tt.want) {
+				t.Errorf("pruneArgs = %q, want %q", opts.pruneArgs, tt.want)
+			}
+			if stdout.Len() != 0 || stderr.Len() != 0 {
+				t.Errorf("unexpected output: stdout %q, stderr %q", stdout.String(), stderr.String())
+			}
+		})
+	}
+
+	// Only as the first argument.
+	var stdout, stderr bytes.Buffer
+	if opts, code, exit := parseFlags([]string{"--config", "x.yaml", "prune"}, &stdout, &stderr); opts.prune || !exit || code != 2 {
+		t.Errorf("prune after a flag: (%+v, %d, %v), want an unexpected argument", opts, code, exit)
 	}
 }
 

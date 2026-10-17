@@ -175,3 +175,38 @@ func TestImageMatchesRef(t *testing.T) {
 		})
 	}
 }
+
+func TestProtectedImages(t *testing.T) {
+	p, err := NewProtector([]string{"my-db", "prod-api:*"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	images := []client.APIImages{
+		{ID: "sha256:postgres", RepoTags: []string{"postgres:16"}},            // run by my-db
+		{ID: "sha256:prodapi", RepoTags: []string{"prod-api:2.1"}},            // protect-list
+		{ID: "sha256:pause", RepoTags: []string{"registry.k8s.io/pause:3.9"}}, // system
+		{ID: "sha256:web", RepoTags: []string{"nginx:latest"}},                // run by web only
+		{ID: "sha256:pod", RepoTags: []string{"busybox:1"}},                   // run by a pod
+		{ID: "sha256:none"},
+	}
+	containers := []client.APIContainers{
+		{ID: "db", Names: []string{"/my-db"}, Image: "postgres:16"},
+		{ID: "web", Names: []string{"/web"}, Image: "nginx"},
+		{ID: "pod", Names: []string{"/k8s_app_default"}, Image: "busybox:1"},
+	}
+	want := map[string]Reason{
+		"sha256:postgres": ReasonUsedByProtected,
+		"sha256:prodapi":  ReasonProtectList,
+		"sha256:pause":    ReasonSystem,
+		"sha256:pod":      ReasonUsedByProtected,
+	}
+	got := p.ProtectedImages(images, containers)
+	if len(got) != len(want) {
+		t.Errorf("ProtectedImages = %v, want %v", got, want)
+	}
+	for id, r := range want {
+		if got[id] != r {
+			t.Errorf("ProtectedImages[%s] = %q, want %q", id, got[id], r)
+		}
+	}
+}

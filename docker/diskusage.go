@@ -90,26 +90,36 @@ type DiskUsageFetchedMsg struct {
 	Err   error
 }
 
-// FetchDiskUsage returns a tea.Cmd that fetches the daemon's disk usage. It is
-// the slowest fetch, since the daemon measures every volume, so it runs on its
-// own and the lists it adds to show without it first.
+// FetchDiskUsage returns a tea.Cmd that fetches the daemon's disk usage (see
+// GetDiskUsage). It is the slowest fetch, since the daemon measures every
+// volume, so it runs on its own and the lists it adds to show without it
+// first.
 func FetchDiskUsage(cli API) tea.Cmd {
 	return func() tea.Msg {
-		// Every type, for the totals. Verbose: from API 1.52 the daemon
-		// lists the individual volumes and build cache records only when
-		// asked to.
-		res, err := cli.DiskUsage(context.Background(), mobyclient.DiskUsageOptions{
-			Images:     true,
-			Containers: true,
-			Volumes:    true,
-			BuildCache: true,
-			Verbose:    true,
-		})
+		u, err := GetDiskUsage(context.Background(), cli)
 		if err != nil {
 			return DiskUsageFetchedMsg{Err: err}
 		}
-		return DiskUsageFetchedMsg{Usage: newDiskUsage(res)}
+		return DiskUsageFetchedMsg{Usage: u}
 	}
+}
+
+// GetDiskUsage asks the daemon for its disk usage, as `docker system df -v`
+// reports it.
+func GetDiskUsage(ctx context.Context, cli API) (DiskUsage, error) {
+	// Every type, for the totals. Verbose: from API 1.52 the daemon lists
+	// the individual volumes and build cache records only when asked to.
+	res, err := cli.DiskUsage(ctx, mobyclient.DiskUsageOptions{
+		Images:     true,
+		Containers: true,
+		Volumes:    true,
+		BuildCache: true,
+		Verbose:    true,
+	})
+	if err != nil {
+		return DiskUsage{}, err
+	}
+	return newDiskUsage(res), nil
 }
 
 // newDiskUsage extracts what docker-cleaner shows from the daemon's report.
