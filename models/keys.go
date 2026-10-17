@@ -132,9 +132,11 @@ func defaultConfirmKeyMap() confirmKeyMap {
 			key.WithKeys("n", "N", "esc"),
 			key.WithHelp("n/esc", "cancel"),
 		),
+		// Quit matches keyMap.Quit, so q quits whether or not the dialog is
+		// open.
 		Quit: key.NewBinding(
-			key.WithKeys("ctrl+c"),
-			key.WithHelp("ctrl+c", "quit"),
+			key.WithKeys("q", "ctrl+c"),
+			key.WithHelp("q", "quit"),
 		),
 	}
 }

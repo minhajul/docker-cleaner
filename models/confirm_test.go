@@ -159,7 +159,7 @@ func TestConfirmIgnoresOtherKeys(t *testing.T) {
 
 	// Each of these would move, select or toggle help outside the dialog.
 	// Every key closes the dialog, so reopen it before the next one.
-	for _, k := range []tea.KeyMsg{runes("j"), runes("k"), runes(" "), runes("?"), runes("q")} {
+	for _, k := range []tea.KeyMsg{runes("j"), runes("k"), runes(" "), runes("?")} {
 		next, cmd := m.Update(k)
 		m = next.(Model)
 		if cmd != nil {

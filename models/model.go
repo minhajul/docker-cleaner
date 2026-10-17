@@ -233,8 +233,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // updateConfirm handles a key press while the confirmation dialog is open.
 // The dialog closes on any key: y deletes, f (offered only when a selected
-// container is running) deletes with containers force-removed, ctrl+c quits,
-// and everything else cancels.
+// container is running) deletes with containers force-removed, q or ctrl+c
+// quits, and everything else cancels.
 func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	pending := m.confirm
 	m.confirm = nil
