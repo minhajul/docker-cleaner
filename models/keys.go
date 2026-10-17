@@ -15,6 +15,7 @@ type keyMap struct {
 
 	SelectAll  key.Binding
 	SelectNone key.Binding
+	Refresh    key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -51,6 +52,10 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("n"),
 			key.WithHelp("n", "select none"),
 		),
+		Refresh: key.NewBinding(
+			key.WithKeys("r"),
+			key.WithHelp("r", "refresh"),
+		),
 	}
 }
 
@@ -66,6 +71,6 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down},
 		{k.Toggle, k.Delete},
 		{k.Help, k.Quit},
-		{k.SelectAll, k.SelectNone},
+		{k.SelectAll, k.SelectNone, k.Refresh},
 	}
 }

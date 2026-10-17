@@ -37,6 +37,7 @@ type Model struct {
 	errorMsg     string
 	successMsg   string
 	cleaning     bool
+	refreshing   int // fetches still outstanding after the refresh key
 	keys         keyMap
 	help         help.Model
 }
@@ -108,6 +109,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.SelectNone):
 			m.selected = make(map[string]struct{})
 
+		case key.Matches(msg, m.keys.Refresh):
+			// A cleanup already refreshes the lists when it finishes.
+			if !m.cleaning {
+				m.errorMsg = ""
+				m.successMsg = ""
+				m.refreshing = 2 // images and containers
+				return m, m.refreshCmd()
+			}
+
 		case key.Matches(msg, m.keys.Delete):
 			if len(m.selected) > 0 {
 				// Clear previous messages when starting new cleanup
@@ -125,11 +135,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case docker.ImagesFetchedMsg:
 		m.images = msg.Images
+		m.refreshing = max(0, m.refreshing-1)
 		m.updateItems()
 		return m, nil
 
 	case docker.ContainersFetchedMsg:
 		m.containers = msg.Containers
+		m.refreshing = max(0, m.refreshing-1)
 		m.updateItems()
 		return m, nil
 
@@ -147,6 +159,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.errorMsg = msg.Error()
 		m.successMsg = "" // Clear any previous success messages
 		m.cleaning = false
+		m.refreshing = 0
 		return m, nil
 	}
 
@@ -200,6 +213,11 @@ func (m Model) View() string {
 	if m.cleaning {
 		s.WriteString("\n")
 		s.WriteString(styles.Cleaning.Render("🔄 Cleaning up..."))
+	}
+
+	if m.refreshing > 0 {
+		s.WriteString("\n")
+		s.WriteString(styles.Cleaning.Render("🔄 Refreshing..."))
 	}
 
 	if m.successMsg != "" {

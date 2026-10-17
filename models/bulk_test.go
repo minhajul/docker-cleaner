@@ -2,7 +2,12 @@ package models
 
 import (
 	"slices"
+	"strings"
 	"testing"
+
+	"docker-cleaner/docker/dockertest"
+	tea "github.com/charmbracelet/bubbletea"
+	dockerClient "github.com/fsouza/go-dockerclient"
 )
 
 const ctrY = "yyyyyyyyyyyyyyyy"
@@ -101,5 +106,94 @@ func TestToggleEmptySectionHeader(t *testing.T) {
 
 	if got, want := selectedIDs(m), []string{imgA}; !slices.Equal(got, want) {
 		t.Errorf("selected = %v, want %v", got, want)
+	}
+}
+
+// run executes cmd, which may be a tea.Batch, and feeds every resulting
+// message back into the model.
+func run(t *testing.T, m Model, cmd tea.Cmd) Model {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("expected a command, got nil")
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, c := range batch {
+			m = run(t, m, c)
+		}
+		return m
+	}
+	return updated(m, msg)
+}
+
+func fakeImages(ids ...string) []dockerClient.APIImages {
+	return images(ids...).Images
+}
+
+func fakeContainers(ids ...string) []dockerClient.APIContainers {
+	return containers(ids...).Containers
+}
+
+func hasItem(m Model, id string) bool {
+	return slices.ContainsFunc(m.items, func(it SelectableItem) bool {
+		return it.ID == id && it.Type != ItemTypeHeader
+	})
+}
+
+func TestRefreshKey(t *testing.T) {
+	fake := &dockertest.Fake{
+		Images:     fakeImages(imgA, imgB),
+		Containers: fakeContainers(ctrX),
+	}
+	m := newModel(fake)
+	m = run(t, m, m.Init())
+	for _, id := range []string{imgA, imgB, ctrX} {
+		m = toggle(t, m, id)
+	}
+	m.successMsg = "stale success"
+	m.errorMsg = "stale error"
+
+	// imgA vanished and ctrY appeared outside the app.
+	fake.Images = fakeImages(imgB, imgC)
+	fake.Containers = fakeContainers(ctrX, ctrY)
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = next.(Model)
+	if m.successMsg != "" || m.errorMsg != "" {
+		t.Errorf("refresh should clear messages, got success=%q error=%q", m.successMsg, m.errorMsg)
+	}
+	if !strings.Contains(m.View(), "Refreshing") {
+		t.Errorf("view should show a refreshing indicator, got:\n%s", m.View())
+	}
+
+	m = run(t, m, cmd)
+
+	if got, want := selectedIDs(m), slices.Sorted(slices.Values([]string{imgB, ctrX})); !slices.Equal(got, want) {
+		t.Errorf("selected = %v, want %v", got, want)
+	}
+	for _, id := range []string{imgB, imgC, ctrX, ctrY} {
+		if !hasItem(m, id) {
+			t.Errorf("%s missing from items after refresh: %v", id, m.items)
+		}
+	}
+	if hasItem(m, imgA) {
+		t.Errorf("vanished %s still listed: %v", imgA, m.items)
+	}
+	if strings.Contains(m.View(), "Refreshing") {
+		t.Errorf("refreshing indicator should clear once both lists arrive, got:\n%s", m.View())
+	}
+}
+
+func TestRefreshKeyIgnoredWhileCleaning(t *testing.T) {
+	m := newModel(&dockertest.Fake{})
+	m.cleaning = true
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+
+	if cmd != nil {
+		t.Error("refresh during cleanup should not start another fetch")
+	}
+	if next.(Model).refreshing != 0 {
+		t.Error("refresh during cleanup should not show the refreshing indicator")
 	}
 }
