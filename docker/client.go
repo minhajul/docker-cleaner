@@ -157,7 +157,7 @@ func removeFailure(item CleanupItem, err error) CleanupFailure {
 	}
 	switch item.Type {
 	case CleanupItemTypeContainer:
-		f.Reason = "container is running; stop it first"
+		f.Reason = containerConflictReason(apiErr.Message)
 	case CleanupItemTypeImage:
 		f.Reason = imageConflictReason(apiErr.Message)
 		// The daemon says "cannot be forced" when a running container
@@ -165,6 +165,21 @@ func removeFailure(item CleanupItem, err error) CleanupFailure {
 		f.Forceable = !item.Force && !strings.Contains(apiErr.Message, "cannot be forced")
 	}
 	return f
+}
+
+// containerConflictReason says why the daemon refused to remove a container
+// without Force. It refuses running, paused and restarting containers, naming
+// the state in its 409 message (e.g. "cannot remove a paused container: ...");
+// a message that names none is taken to mean running.
+func containerConflictReason(msg string) string {
+	switch {
+	case strings.Contains(msg, "paused"):
+		return "container is paused; unpause and stop it first"
+	case strings.Contains(msg, "restarting"):
+		return "container is restarting; stop it first"
+	default:
+		return "container is running; stop it first"
+	}
 }
 
 // imageConflictReason extracts the explanation from the daemon's 409 message

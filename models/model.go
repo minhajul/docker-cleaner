@@ -79,7 +79,16 @@ type pendingDelete struct {
 	images     int
 	containers int
 	size       int64 // bytes freed: images' Size plus containers' SizeRw
-	running    int   // selected containers that are running
+	// Selected containers Docker won't remove without force, by state.
+	running    int
+	paused     int
+	restarting int
+}
+
+// active is the number of selected containers Docker won't remove without
+// force: running, paused or restarting ones.
+func (p *pendingDelete) active() int {
+	return p.running + p.paused + p.restarting
 }
 
 // InitialModel creates a new Model connected to the Docker daemon, found
@@ -185,7 +194,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// user answers it (see updateConfirm).
 			if len(m.selected) > 0 {
 				m.confirm = m.newPendingDelete()
-				m.confirmKeys.Force.SetEnabled(m.confirm.running > 0)
+				m.confirmKeys.Force.SetEnabled(m.confirm.active() > 0)
 			}
 		}
 		m.scrollToCursor()
@@ -233,7 +242,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // updateConfirm handles a key press while the confirmation dialog is open.
 // The dialog closes on any key: y deletes, f (offered only when a selected
-// container is running) deletes with containers force-removed, q or ctrl+c
+// container is running, paused or restarting) deletes with containers
+// force-removed, q or ctrl+c
 // quits, and everything else cancels.
 func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	pending := m.confirm
@@ -324,8 +334,13 @@ func (m *Model) newPendingDelete() *pendingDelete {
 			p.images++
 		case ItemTypeContainer:
 			p.containers++
-			if row.State == "running" {
+			switch row.State {
+			case "running":
 				p.running++
+			case "paused":
+				p.paused++
+			case "restarting":
+				p.restarting++
 			}
 		}
 	}
@@ -345,17 +360,40 @@ func (p *pendingDelete) prompt() string {
 	return fmt.Sprintf("Delete %s (%s)? y/N", strings.Join(parts, ", "), docker.HumanSize(p.size))
 }
 
-// warning explains what happens to running containers, or returns "" when
-// none are selected.
+// warning explains what happens to running, paused and restarting
+// containers, or returns "" when none are selected. It names their state:
+// "⚠ 2 containers are paused and won't be removed with y; press f to
+// force-remove them", or with mixed states "⚠ 3 containers (2 running,
+// 1 paused) won't be removed with y; …".
 func (p *pendingDelete) warning() string {
-	switch p.running {
-	case 0:
+	n := p.active()
+	if n == 0 {
 		return ""
-	case 1:
-		return "⚠ 1 container is running and won't be removed with y; press f to force-remove it"
-	default:
-		return fmt.Sprintf("⚠ %d containers are running and won't be removed with y; press f to force-remove them", p.running)
 	}
+	var states, counts []string
+	for _, s := range []struct {
+		count int
+		state string
+	}{{p.running, "running"}, {p.paused, "paused"}, {p.restarting, "restarting"}} {
+		if s.count > 0 {
+			states = append(states, s.state)
+			counts = append(counts, fmt.Sprintf("%d %s", s.count, s.state))
+		}
+	}
+
+	what := fmt.Sprintf("%d containers (%s)", n, strings.Join(counts, ", "))
+	if len(states) == 1 {
+		verb := "are"
+		if n == 1 {
+			verb = "is"
+		}
+		what = fmt.Sprintf("%s %s %s and", plural(n, "container"), verb, states[0])
+	}
+	it := "them"
+	if n == 1 {
+		it = "it"
+	}
+	return fmt.Sprintf("⚠ %s won't be removed with y; press f to force-remove %s", what, it)
 }
 
 // plural formats a count with its noun, adding an "s" unless n is 1.
@@ -578,8 +616,8 @@ func (m *Model) updateItems() {
 			// Remove leading slash from container name
 			name = strings.TrimPrefix(container.Names[0], "/")
 		}
-		// Show the state so running containers, which removal will refuse,
-		// stand out.
+		// Show the state so running and paused containers, which removal
+		// will refuse, stand out.
 		state := container.State
 		if state == "" {
 			state = "unknown"

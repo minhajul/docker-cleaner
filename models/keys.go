@@ -111,7 +111,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 // place of keyMap.
 type confirmKeyMap struct {
 	Yes   key.Binding
-	Force key.Binding // enabled only while a selected container is running
+	Force key.Binding // enabled only while a selected container is running, paused or restarting
 	No    key.Binding
 	Quit  key.Binding
 }

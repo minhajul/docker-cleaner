@@ -36,3 +36,47 @@ func TestConfirmFooterNamesQ(t *testing.T) {
 		t.Errorf("dialog footer should name q, not ctrl+c, got:\n%s", view)
 	}
 }
+
+func TestConfirmWarningNamesStates(t *testing.T) {
+	cases := []struct {
+		p    pendingDelete
+		want string
+	}{
+		{pendingDelete{containers: 1}, ""},
+		{pendingDelete{containers: 1, running: 1}, "⚠ 1 container is running and won't be removed with y; press f to force-remove it"},
+		{pendingDelete{containers: 2, paused: 1}, "⚠ 1 container is paused and won't be removed with y; press f to force-remove it"},
+		{pendingDelete{containers: 2, restarting: 2}, "⚠ 2 containers are restarting and won't be removed with y; press f to force-remove them"},
+		{pendingDelete{containers: 3, running: 2, paused: 1}, "⚠ 3 containers (2 running, 1 paused) won't be removed with y; press f to force-remove them"},
+		{pendingDelete{containers: 3, running: 1, paused: 1, restarting: 1}, "⚠ 3 containers (1 running, 1 paused, 1 restarting) won't be removed with y; press f to force-remove them"},
+	}
+	for _, c := range cases {
+		if got := c.p.warning(); got != c.want {
+			t.Errorf("warning() for %+v = %q, want %q", c.p, got, c.want)
+		}
+	}
+}
+
+func TestConfirmForceOfferedForPausedAndRestarting(t *testing.T) {
+	for _, state := range []string{"paused", "restarting"} {
+		t.Run(state, func(t *testing.T) {
+			fake := newFake()
+			for i := range fake.Containers {
+				if fake.Containers[i].ID == ctrStopped {
+					fake.Containers[i].State = state
+				}
+			}
+			m := loaded(t, fake, ctrStopped)
+
+			m = send(t, m, runes("d"))
+			want := "⚠ 1 container is " + state + " and won't be removed with y; press f to force-remove it"
+			if view := m.View(); !strings.Contains(view, want) || !strings.Contains(view, "force delete") {
+				t.Errorf("view should warn %q and offer f, got:\n%s", want, view)
+			}
+
+			send(t, m, runes("f"))
+			if len(fake.RemoveContainerOpts) != 1 || !fake.RemoveContainerOpts[0].Force {
+				t.Errorf("f should force-remove the %s container, got %v", state, fake.RemoveContainerOpts)
+			}
+		})
+	}
+}

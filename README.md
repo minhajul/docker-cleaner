@@ -60,7 +60,7 @@ docker-cleaner --help      Show flags and keys
 | `a` / `n` | Select all / select none |
 | `r` | Refresh the lists |
 | `d` | Delete selected (asks for confirmation) |
-| `y` / `f` / `n` | In the confirmation: delete / force-delete running containers / cancel |
+| `y` / `f` / `n` | In the confirmation: delete / force-delete running or paused containers / cancel |
 | `f` | After a cleanup: force-remove images that failed because they are in use or have several tags |
 | `?` | Show all keys |
 | `q`, `ctrl+c` | Quit |
