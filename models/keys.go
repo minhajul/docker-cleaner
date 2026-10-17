@@ -12,6 +12,9 @@ type keyMap struct {
 	Delete key.Binding
 	Help   key.Binding
 	Quit   key.Binding
+	// ForceRetry is enabled only while the last cleanup left images that a
+	// forced removal may delete.
+	ForceRetry key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -40,6 +43,11 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("q", "ctrl+c"),
 			key.WithHelp("q", "quit"),
 		),
+		ForceRetry: key.NewBinding(
+			key.WithKeys("f"),
+			key.WithHelp("f", "force-remove failed images"),
+			key.WithDisabled(),
+		),
 	}
 }
 
@@ -55,6 +63,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down},
 		{k.Toggle, k.Delete},
 		{k.Help, k.Quit},
+		{k.ForceRetry},
 	}
 }
 

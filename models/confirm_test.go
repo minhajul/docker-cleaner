@@ -63,8 +63,8 @@ func settle(t *testing.T, m Model, cmd tea.Cmd) Model {
 func newFake() *dockertest.Fake {
 	return &dockertest.Fake{
 		Images: []dockerClient.APIImages{
-			{ID: imgA, Size: 1 << 30},
-			{ID: imgB, Size: 512 << 20},
+			{ID: imgA, RepoTags: []string{"alpine:latest"}, Size: 1 << 30},
+			{ID: imgB, RepoTags: []string{"busybox:latest"}, Size: 512 << 20},
 		},
 		Containers: []dockerClient.APIContainers{
 			{ID: ctrRunning, Names: []string{"/web"}, State: "running", SizeRw: 10 << 20, SizeRootFs: 2 << 30},

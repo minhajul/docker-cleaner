@@ -51,8 +51,8 @@ func TestPerformCleanupRemovesContainersBeforeImages(t *testing.T) {
 
 			msg := docker.PerformCleanup(fake, c.items)()
 
-			if _, ok := msg.(docker.CleanupDoneMsg); !ok {
-				t.Fatalf("expected CleanupDoneMsg, got %T: %v", msg, msg)
+			if _, ok := msg.(docker.CleanupResultMsg); !ok {
+				t.Fatalf("expected CleanupResultMsg, got %T: %v", msg, msg)
 			}
 			if !slices.Equal(fake.Removed, c.want) {
 				t.Errorf("Removed = %v, want %v", fake.Removed, c.want)

@@ -31,6 +31,9 @@ type SelectableItem struct {
 	// State is a container's state as reported by Docker (e.g. "running");
 	// empty for images and headers.
 	State string
+	// Name is an image's first tag or a container's name ("<none>" if it
+	// has neither), for naming the item in messages.
+	Name string
 }
 
 type Model struct {
@@ -41,7 +44,6 @@ type Model struct {
 	images       []dockerClient.APIImages
 	containers   []dockerClient.APIContainers
 	errorMsg     string
-	successMsg   string
 	cleaning     bool
 	keys         keyMap
 	help         help.Model
@@ -49,6 +51,20 @@ type Model struct {
 	// confirmation dialog is closed.
 	confirm     *pendingDelete
 	confirmKeys confirmKeyMap
+	// report describes the last cleanup; nil before the first one and
+	// while a cleanup runs.
+	report *cleanupReport
+}
+
+// cleanupReport is what the model shows about a finished cleanup. It is
+// built when the result arrives, while the failed items are still listed, so
+// their names are known.
+type cleanupReport struct {
+	summary  string   // e.g. "Deleted 4 · Failed 1"
+	failures []string // one "<short id> <name>: <reason>" line per failure
+	// retry holds the failed images a forced removal may delete, with
+	// Force set; f retries them.
+	retry []docker.CleanupItem
 }
 
 // pendingDelete is a snapshot of the selection taken when the user presses
@@ -137,6 +153,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.selected[id] = struct{}{}
 				}
 			}
+		case key.Matches(msg, m.keys.ForceRetry):
+			// Enabled only while m.report.retry is non-empty.
+			return m.startCleanup(m.report.retry)
+
 		case key.Matches(msg, m.keys.Delete):
 			// Open the confirmation dialog; nothing is deleted until the
 			// user answers it (see updateConfirm).
@@ -159,16 +179,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case docker.CleanupMsg:
 		return m, docker.PerformCleanup(m.dockerClient, msg.ItemsToClean)
 
-	case docker.CleanupDoneMsg:
+	case docker.CleanupResultMsg:
 		m.cleaning = false
-		m.selected = make(map[string]struct{})
-		m.errorMsg = "" // Clear any previous errors
-		m.successMsg = msg.Message
+		// Failed items stay selected so the user can retry them.
+		for _, item := range msg.Deleted {
+			delete(m.selected, item.ID)
+		}
+		m.setReport(m.newReport(msg))
+		// Refresh even after failures: some items may be gone regardless.
 		return m, m.refreshCmd()
 
 	case docker.ErrMsg:
 		m.errorMsg = msg.Error()
-		m.successMsg = "" // Clear any previous success messages
 		m.cleaning = false
 		return m, nil
 	}
@@ -206,11 +228,48 @@ func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // goroutine and must not read m.selected while Update mutates it.
 func (m Model) startCleanup(items []docker.CleanupItem) (Model, tea.Cmd) {
 	m.errorMsg = ""
-	m.successMsg = ""
+	m.setReport(nil)
 	m.cleaning = true
 	return m, func() tea.Msg {
 		return docker.CleanupMsg{ItemsToClean: items}
 	}
+}
+
+// setReport replaces the cleanup report, enabling the force-retry key only
+// while the report has images to retry.
+func (m *Model) setReport(r *cleanupReport) {
+	m.report = r
+	m.keys.ForceRetry.SetEnabled(r != nil && len(r.retry) > 0)
+}
+
+// newReport turns a cleanup result into the lines the model shows, naming
+// each failed item from its row.
+func (m *Model) newReport(res docker.CleanupResultMsg) *cleanupReport {
+	names := make(map[string]string, len(m.items))
+	for _, item := range m.items {
+		if item.Type != ItemTypeHeader {
+			names[item.ID] = item.Name
+		}
+	}
+
+	r := &cleanupReport{summary: res.Summary(), retry: res.ForceRetry()}
+	for _, f := range res.Failed {
+		label := docker.ShortID(f.Item.ID)
+		if name := names[f.Item.ID]; name != "" {
+			label += " " + name
+		}
+		r.failures = append(r.failures, fmt.Sprintf("%s: %s", label, f.Reason))
+	}
+	return r
+}
+
+// retryHint offers the forced retry, e.g. "Press f to force-remove 2 images
+// that are in use or have several tags".
+func (r *cleanupReport) retryHint() string {
+	if len(r.retry) == 1 {
+		return "Press f to force-remove 1 image that is in use or has several tags"
+	}
+	return fmt.Sprintf("Press f to force-remove %d images that are in use or have several tags", len(r.retry))
 }
 
 // newPendingDelete snapshots the current selection for the confirmation
@@ -333,9 +392,21 @@ func (m Model) View() string {
 		s.WriteString(styles.Cleaning.Render("🔄 Cleaning up..."))
 	}
 
-	if m.successMsg != "" {
+	if r := m.report; r != nil {
 		s.WriteString("\n")
-		s.WriteString(styles.SuccessMessage.Render("✅ " + m.successMsg))
+		if len(r.failures) == 0 {
+			s.WriteString(styles.SuccessMessage.Render("✅ " + r.summary))
+		} else {
+			s.WriteString(styles.ErrorMessage.Render("❌ " + r.summary))
+		}
+		for _, line := range r.failures {
+			s.WriteString("\n")
+			s.WriteString(styles.Warning.Render("  " + line))
+		}
+		if len(r.retry) > 0 {
+			s.WriteString("\n")
+			s.WriteString(styles.Confirm.Render(r.retryHint()))
+		}
 	}
 
 	if m.errorMsg != "" {
@@ -409,6 +480,7 @@ func (m *Model) updateItems() {
 			Type:    ItemTypeImage,
 			Display: fmt.Sprintf("%s (ID: %s, Size: %s)", name, docker.ShortID(img.ID), docker.HumanSize(img.Size)),
 			Size:    img.Size,
+			Name:    name,
 		})
 	}
 
@@ -440,6 +512,7 @@ func (m *Model) updateItems() {
 			Display: fmt.Sprintf("%s (ID: %s, Image: %s, State: %s, Size: %s)", name, docker.ShortID(container.ID), container.Image, state, size),
 			Size:    container.SizeRw,
 			State:   container.State,
+			Name:    name,
 		})
 	}
 
