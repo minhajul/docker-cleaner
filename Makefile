@@ -1,11 +1,16 @@
 BINARY_NAME=docker-cleaner
 
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null)
+DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
+
 .PHONY: all build run test lint clean fmt fmt-check tidy vuln ci help vet
 
 all: fmt-check vet test build
 
-build:
-	go build -o $(BINARY_NAME) main.go
+build: ## Build the binary, stamped with the git version
+	go build -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) .
 
 run: build
 	./$(BINARY_NAME)
@@ -39,3 +44,4 @@ help: ## Show this help message
 clean:
 	go clean
 	rm -f $(BINARY_NAME)
+	rm -rf dist
