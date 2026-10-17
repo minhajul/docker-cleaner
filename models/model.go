@@ -29,14 +29,15 @@ type SelectableItem struct {
 	ID      string
 	Type    ItemType
 	Display string
-	// Size is the disk space deleting the item frees: an image's Size, or a
-	// container's writable layer (SizeRw).
+	// Size is the disk space deleting the item frees: an image's Size, a
+	// container's writable layer (SizeRw), or a volume's size (0 if
+	// unknown).
 	Size int64
 	// State is a container's state as reported by Docker (e.g. "running");
-	// empty for images and headers.
+	// empty for other items and headers.
 	State string
 	// Name is an image's first tag or a container's name ("<none>" if it
-	// has neither), for naming the item in messages.
+	// has neither), or a volume's name, for naming the item in messages.
 	Name string
 }
 
@@ -47,6 +48,11 @@ type Model struct {
 	dockerClient docker.API
 	images       []dockerClient.APIImages
 	containers   []dockerClient.APIContainers
+	volumes      []dockerClient.Volume
+	// diskUsage adds volume sizes to the lists; diskUsageErr is why it
+	// could not be fetched, if it could not.
+	diskUsage    docker.DiskUsage
+	diskUsageErr error
 	errorMsg     string
 	cleaning     bool
 	refreshing   int // fetches still outstanding after the refresh key
@@ -82,7 +88,8 @@ type pendingDelete struct {
 	items      []docker.CleanupItem
 	images     int
 	containers int
-	size       int64 // bytes freed: images' Size plus containers' SizeRw
+	volumes    int
+	size       int64 // bytes freed: the selected rows' Size (see SelectableItem)
 	running    int   // selected containers that are running
 }
 
@@ -121,10 +128,21 @@ func (m Model) Init() tea.Cmd {
 	return m.refreshCmd()
 }
 
-// refreshCmd returns a tea.Cmd that fetches both images and containers
-// using the shared Docker client.
+// refreshCmd returns a tea.Cmd that runs every fetch (see fetchCmds) using
+// the shared Docker client.
 func (m Model) refreshCmd() tea.Cmd {
-	return tea.Batch(docker.FetchDockerImages(m.dockerClient), docker.FetchDockerContainers(m.dockerClient))
+	return tea.Batch(m.fetchCmds()...)
+}
+
+// fetchCmds returns the fetches that refresh the lists. Each answers with
+// exactly one message, which Update counts against m.refreshing.
+func (m Model) fetchCmds() []tea.Cmd {
+	return []tea.Cmd{
+		docker.FetchDockerImages(m.dockerClient),
+		docker.FetchDockerContainers(m.dockerClient),
+		docker.FetchVolumes(m.dockerClient),
+		docker.FetchDiskUsage(m.dockerClient),
+	}
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -164,7 +182,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !m.cleaning {
 				m.errorMsg = ""
 				m.report = nil
-				m.refreshing = 2 // images and containers
+				m.refreshing = len(m.fetchCmds())
 				return m, m.refreshCmd()
 			}
 
@@ -208,6 +226,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case docker.ContainersFetchedMsg:
 		m.containers = msg.Containers
+		m.refreshing = max(0, m.refreshing-1)
+		m.updateItems()
+		return m, nil
+
+	case docker.VolumesFetchedMsg:
+		m.volumes = msg.Volumes
+		m.refreshing = max(0, m.refreshing-1)
+		m.updateItems()
+		return m, nil
+
+	case docker.DiskUsageFetchedMsg:
+		// On error keep nothing from an earlier fetch: stale sizes would
+		// mislead more than missing ones.
+		m.diskUsage, m.diskUsageErr = msg.Usage, msg.Err
 		m.refreshing = max(0, m.refreshing-1)
 		m.updateItems()
 		return m, nil
@@ -291,11 +323,7 @@ func (m *Model) newReport(res docker.CleanupResultMsg) *cleanupReport {
 
 	r := &cleanupReport{summary: res.Summary(), retry: res.ForceRetry()}
 	for _, f := range res.Failed {
-		label := docker.ShortID(f.Item.ID)
-		if name := names[f.Item.ID]; name != "" {
-			label += " " + name
-		}
-		r.failures = append(r.failures, fmt.Sprintf("%s: %s", label, f.Reason))
+		r.failures = append(r.failures, fmt.Sprintf("%s: %s", failureLabel(f.Item, names[f.Item.ID]), f.Reason))
 	}
 	return r
 }
@@ -326,6 +354,8 @@ func (m *Model) newPendingDelete() *pendingDelete {
 		switch row.Type {
 		case ItemTypeImage:
 			p.images++
+		case ItemTypeVolume:
+			p.volumes++
 		case ItemTypeContainer:
 			p.containers++
 			if row.State == "running" {
@@ -337,7 +367,7 @@ func (m *Model) newPendingDelete() *pendingDelete {
 }
 
 // prompt is the dialog's question, e.g. "Delete 3 images, 2 containers
-// (1.4 GB)? y/N".
+// (1.4 GB)? y/N". Only the types selected are named.
 func (p *pendingDelete) prompt() string {
 	var parts []string
 	if p.images > 0 {
@@ -345,6 +375,9 @@ func (p *pendingDelete) prompt() string {
 	}
 	if p.containers > 0 {
 		parts = append(parts, plural(p.containers, "container"))
+	}
+	if p.volumes > 0 {
+		parts = append(parts, plural(p.volumes, "volume"))
 	}
 	return fmt.Sprintf("Delete %s (%s)? y/N", strings.Join(parts, ", "), docker.HumanSize(p.size))
 }
@@ -603,6 +636,8 @@ func (m *Model) updateItems() {
 			Name:    name,
 		})
 	}
+
+	m.items = append(m.items, m.volumeRows()...)
 
 	m.reconcileSelection()
 	m.scrollToCursor()
