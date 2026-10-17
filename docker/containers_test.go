@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 
 	"docker-cleaner/docker"
@@ -54,22 +53,22 @@ func TestPerformCleanupContainerErrors(t *testing.T) {
 		{
 			name: "running container",
 			err:  &client.Error{Status: http.StatusConflict, Message: "cannot remove a running container"},
-			want: "container cccccccccccc is running; stop it first",
+			want: "container is running; stop it first",
 		},
 		{
 			name: "wrapped running container",
 			err:  fmt.Errorf("remove: %w", &client.Error{Status: http.StatusConflict}),
-			want: "container cccccccccccc is running; stop it first",
+			want: "container is running; stop it first",
 		},
 		{
 			name: "other API error",
 			err:  &client.Error{Status: http.StatusInternalServerError, Message: "boom"},
-			want: "failed to remove container cccccccccccc: API error (500): boom",
+			want: "API error (500): boom",
 		},
 		{
 			name: "plain error",
 			err:  errors.New("connection refused"),
-			want: "failed to remove container cccccccccccc: connection refused",
+			want: "connection refused",
 		},
 	}
 	for _, c := range cases {
@@ -82,12 +81,18 @@ func TestPerformCleanupContainerErrors(t *testing.T) {
 				{ID: id, Type: docker.CleanupItemTypeContainer},
 			})()
 
-			errMsg, ok := msg.(docker.ErrMsg)
+			result, ok := msg.(docker.CleanupResultMsg)
 			if !ok {
-				t.Fatalf("expected ErrMsg, got %T: %v", msg, msg)
+				t.Fatalf("expected CleanupResultMsg, got %T: %v", msg, msg)
 			}
-			if !strings.Contains(errMsg.Error(), c.want) {
-				t.Errorf("error = %q, want it to contain %q", errMsg.Error(), c.want)
+			if len(result.Failed) != 1 {
+				t.Fatalf("Failed = %v, want one failure", result.Failed)
+			}
+			if got := result.Failed[0].Reason; got != c.want {
+				t.Errorf("Reason = %q, want %q", got, c.want)
+			}
+			if result.Failed[0].Forceable {
+				t.Errorf("container failures must not be offered a forced retry")
 			}
 		})
 	}

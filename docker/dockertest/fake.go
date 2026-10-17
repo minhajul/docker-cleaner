@@ -29,6 +29,8 @@ type Fake struct {
 	ListContainersOpts client.ListContainersOptions
 	// RemoveContainerOpts records the options of every RemoveContainer call.
 	RemoveContainerOpts []client.RemoveContainerOptions
+	// RemoveImageOpts records the options of every RemoveImageExtended call.
+	RemoveImageOpts []client.RemoveImageOptions
 }
 
 func (f *Fake) Ping() error {
@@ -62,6 +64,13 @@ func (f *Fake) RemoveImage(name string) error {
 		}
 	}
 	return fmt.Errorf("no such image: %s", name)
+}
+
+// RemoveImageExtended behaves like RemoveImage, recording opts first. It
+// ignores opts.Force: an entry in RemoveErrs fails the call either way.
+func (f *Fake) RemoveImageExtended(name string, opts client.RemoveImageOptions) error {
+	f.RemoveImageOpts = append(f.RemoveImageOpts, opts)
+	return f.RemoveImage(name)
 }
 
 func (f *Fake) RemoveContainer(opts client.RemoveContainerOptions) error {

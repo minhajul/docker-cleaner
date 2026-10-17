@@ -2,7 +2,7 @@ package docker_test
 
 import (
 	"errors"
-	"strings"
+	"slices"
 	"testing"
 
 	"docker-cleaner/docker"
@@ -18,17 +18,18 @@ func TestPerformCleanupRemovesItems(t *testing.T) {
 		Images:     []client.APIImages{{ID: "sha256:aaaaaaaaaaaaaaaa"}},
 		Containers: []client.APIContainers{{ID: "cccccccccccccccc"}},
 	}
-	msg := docker.PerformCleanup(fake, []docker.CleanupItem{
+	items := []docker.CleanupItem{
 		{ID: "cccccccccccccccc", Type: docker.CleanupItemTypeContainer},
 		{ID: "sha256:aaaaaaaaaaaaaaaa", Type: docker.CleanupItemTypeImage},
-	})()
-
-	done, ok := msg.(docker.CleanupDoneMsg)
-	if !ok {
-		t.Fatalf("expected CleanupDoneMsg, got %T: %v", msg, msg)
 	}
-	if done.Message != "Successfully deleted 1 image and 1 container" {
-		t.Errorf("unexpected message %q", done.Message)
+	msg := docker.PerformCleanup(fake, items)()
+
+	result, ok := msg.(docker.CleanupResultMsg)
+	if !ok {
+		t.Fatalf("expected CleanupResultMsg, got %T: %v", msg, msg)
+	}
+	if !slices.Equal(result.Deleted, items) || len(result.Failed) != 0 {
+		t.Errorf("result = %+v, want all of %v deleted", result, items)
 	}
 	if len(fake.Removed) != 2 {
 		t.Errorf("expected 2 removals, got %v", fake.Removed)
@@ -44,11 +45,14 @@ func TestPerformCleanupReportsErrors(t *testing.T) {
 		{ID: "sha256:aaaaaaaaaaaaaaaa", Type: docker.CleanupItemTypeImage},
 	})()
 
-	errMsg, ok := msg.(docker.ErrMsg)
+	result, ok := msg.(docker.CleanupResultMsg)
 	if !ok {
-		t.Fatalf("expected ErrMsg, got %T: %v", msg, msg)
+		t.Fatalf("expected CleanupResultMsg, got %T: %v", msg, msg)
 	}
-	if !strings.Contains(errMsg.Error(), "image is in use") {
-		t.Errorf("expected error to mention the cause, got %q", errMsg.Error())
+	if len(result.Deleted) != 0 || len(result.Failed) != 1 {
+		t.Fatalf("result = %+v, want exactly one failure", result)
+	}
+	if got := result.Failed[0].Reason; got != "image is in use" {
+		t.Errorf("Reason = %q, want the cause %q", got, "image is in use")
 	}
 }

@@ -25,6 +25,15 @@ type SelectableItem struct {
 	ID      string
 	Type    ItemType
 	Display string
+	// Size is the disk space deleting the item frees: an image's Size, or a
+	// container's writable layer (SizeRw).
+	Size int64
+	// State is a container's state as reported by Docker (e.g. "running");
+	// empty for images and headers.
+	State string
+	// Name is an image's first tag or a container's name ("<none>" if it
+	// has neither), for naming the item in messages.
+	Name string
 }
 
 type Model struct {
@@ -35,7 +44,6 @@ type Model struct {
 	images       []dockerClient.APIImages
 	containers   []dockerClient.APIContainers
 	errorMsg     string
-	successMsg   string
 	cleaning     bool
 	refreshing   int // fetches still outstanding after the refresh key
 	keys         keyMap
@@ -43,6 +51,35 @@ type Model struct {
 	width        int // terminal size; 0 until the first tea.WindowSizeMsg
 	height       int
 	offset       int // index of the first list row on screen
+	// confirm is the delete awaiting the user's answer; nil when the
+	// confirmation dialog is closed.
+	confirm     *pendingDelete
+	confirmKeys confirmKeyMap
+	// report describes the last cleanup; nil before the first one and
+	// while a cleanup runs.
+	report *cleanupReport
+}
+
+// cleanupReport is what the model shows about a finished cleanup. It is
+// built when the result arrives, while the failed items are still listed, so
+// their names are known.
+type cleanupReport struct {
+	summary  string   // e.g. "Deleted 4 · Failed 1"
+	failures []string // one "<short id> <name>: <reason>" line per failure
+	// retry holds the failed images a forced removal may delete, with
+	// Force set; f retries them.
+	retry []docker.CleanupItem
+}
+
+// pendingDelete is a snapshot of the selection taken when the user presses
+// delete, along with the totals the confirmation dialog shows. The selection
+// cannot change while the dialog is open, so the snapshot stays accurate.
+type pendingDelete struct {
+	items      []docker.CleanupItem
+	images     int
+	containers int
+	size       int64 // bytes freed: images' Size plus containers' SizeRw
+	running    int   // selected containers that are running
 }
 
 // InitialModel creates a new Model connected to the Docker daemon. If Docker
@@ -70,6 +107,7 @@ func newModel(cli docker.API) Model {
 		dockerClient: cli,
 		keys:         defaultKeyMap(),
 		help:         help.New(),
+		confirmKeys:  defaultConfirmKeyMap(),
 	}
 }
 
@@ -86,6 +124,9 @@ func (m Model) refreshCmd() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.confirm != nil {
+			return m.updateConfirm(msg)
+		}
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
@@ -116,7 +157,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// A cleanup already refreshes the lists when it finishes.
 			if !m.cleaning {
 				m.errorMsg = ""
-				m.successMsg = ""
+				m.report = nil
 				m.refreshing = 2 // images and containers
 				return m, m.refreshCmd()
 			}
@@ -133,18 +174,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.End):
 			m.cursor = max(len(m.items)-1, 0)
 
+		case key.Matches(msg, m.keys.ForceRetry):
+			// Enabled only while m.report.retry is non-empty.
+			return m.startCleanup(m.report.retry)
+
 		case key.Matches(msg, m.keys.Delete):
+			// Open the confirmation dialog; nothing is deleted until the
+			// user answers it (see updateConfirm).
 			if len(m.selected) > 0 {
-				// Clear previous messages when starting new cleanup
-				m.errorMsg = ""
-				m.successMsg = ""
-				m.cleaning = true
-				// Snapshot now: the command runs on another goroutine and
-				// must not read m.selected while Update mutates it.
-				items := m.getSelectionForCleanup()
-				return m, func() tea.Msg {
-					return docker.CleanupMsg{ItemsToClean: items}
-				}
+				m.confirm = m.newPendingDelete()
+				m.confirmKeys.Force.SetEnabled(m.confirm.running > 0)
 			}
 		}
 		m.scrollToCursor()
@@ -170,22 +209,159 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case docker.CleanupMsg:
 		return m, docker.PerformCleanup(m.dockerClient, msg.ItemsToClean)
 
-	case docker.CleanupDoneMsg:
+	case docker.CleanupResultMsg:
 		m.cleaning = false
-		m.selected = make(map[string]struct{})
-		m.errorMsg = "" // Clear any previous errors
-		m.successMsg = msg.Message
+		// Failed items stay selected so the user can retry them.
+		for _, item := range msg.Deleted {
+			delete(m.selected, item.ID)
+		}
+		m.setReport(m.newReport(msg))
+		// Refresh even after failures: some items may be gone regardless.
 		return m, m.refreshCmd()
 
 	case docker.ErrMsg:
 		m.errorMsg = msg.Error()
-		m.successMsg = "" // Clear any previous success messages
 		m.cleaning = false
 		m.refreshing = 0
 		return m, nil
 	}
 
 	return m, nil
+}
+
+// updateConfirm handles a key press while the confirmation dialog is open.
+// The dialog closes on any key: y deletes, f (offered only when a selected
+// container is running) deletes with containers force-removed, ctrl+c quits,
+// and everything else cancels.
+func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	pending := m.confirm
+	m.confirm = nil
+	switch {
+	case key.Matches(msg, m.confirmKeys.Quit):
+		return m, tea.Quit
+
+	case key.Matches(msg, m.confirmKeys.Force):
+		for i := range pending.items {
+			if pending.items[i].Type == docker.CleanupItemTypeContainer {
+				pending.items[i].Force = true
+			}
+		}
+		return m.startCleanup(pending.items)
+
+	case key.Matches(msg, m.confirmKeys.Yes):
+		return m.startCleanup(pending.items)
+	}
+	return m, nil
+}
+
+// startCleanup clears the previous status and returns the command that
+// removes items. items must be a snapshot: the command runs on another
+// goroutine and must not read m.selected while Update mutates it.
+func (m Model) startCleanup(items []docker.CleanupItem) (Model, tea.Cmd) {
+	m.errorMsg = ""
+	m.setReport(nil)
+	m.cleaning = true
+	return m, func() tea.Msg {
+		return docker.CleanupMsg{ItemsToClean: items}
+	}
+}
+
+// setReport replaces the cleanup report, enabling the force-retry key only
+// while the report has images to retry.
+func (m *Model) setReport(r *cleanupReport) {
+	m.report = r
+	m.keys.ForceRetry.SetEnabled(r != nil && len(r.retry) > 0)
+}
+
+// newReport turns a cleanup result into the lines the model shows, naming
+// each failed item from its row.
+func (m *Model) newReport(res docker.CleanupResultMsg) *cleanupReport {
+	names := make(map[string]string, len(m.items))
+	for _, item := range m.items {
+		if item.Type != ItemTypeHeader {
+			names[item.ID] = item.Name
+		}
+	}
+
+	r := &cleanupReport{summary: res.Summary(), retry: res.ForceRetry()}
+	for _, f := range res.Failed {
+		label := docker.ShortID(f.Item.ID)
+		if name := names[f.Item.ID]; name != "" {
+			label += " " + name
+		}
+		r.failures = append(r.failures, fmt.Sprintf("%s: %s", label, f.Reason))
+	}
+	return r
+}
+
+// retryHint offers the forced retry, e.g. "Press f to force-remove 2 images
+// that are in use or have several tags".
+func (r *cleanupReport) retryHint() string {
+	if len(r.retry) == 1 {
+		return "Press f to force-remove 1 image that is in use or has several tags"
+	}
+	return fmt.Sprintf("Press f to force-remove %d images that are in use or have several tags", len(r.retry))
+}
+
+// newPendingDelete snapshots the current selection for the confirmation
+// dialog, totalling it from the per-row Size and State set by updateItems.
+func (m *Model) newPendingDelete() *pendingDelete {
+	rows := make(map[string]SelectableItem, len(m.items))
+	for _, item := range m.items {
+		if item.Type != ItemTypeHeader {
+			rows[item.ID] = item
+		}
+	}
+
+	p := &pendingDelete{items: m.getSelectionForCleanup()}
+	for _, it := range p.items {
+		row := rows[it.ID]
+		p.size += row.Size
+		switch row.Type {
+		case ItemTypeImage:
+			p.images++
+		case ItemTypeContainer:
+			p.containers++
+			if row.State == "running" {
+				p.running++
+			}
+		}
+	}
+	return p
+}
+
+// prompt is the dialog's question, e.g. "Delete 3 images, 2 containers
+// (1.4 GB)? y/N".
+func (p *pendingDelete) prompt() string {
+	var parts []string
+	if p.images > 0 {
+		parts = append(parts, plural(p.images, "image"))
+	}
+	if p.containers > 0 {
+		parts = append(parts, plural(p.containers, "container"))
+	}
+	return fmt.Sprintf("Delete %s (%s)? y/N", strings.Join(parts, ", "), docker.HumanSize(p.size))
+}
+
+// warning explains what happens to running containers, or returns "" when
+// none are selected.
+func (p *pendingDelete) warning() string {
+	switch p.running {
+	case 0:
+		return ""
+	case 1:
+		return "⚠ 1 container is running and won't be removed with y; press f to force-remove it"
+	default:
+		return fmt.Sprintf("⚠ %d containers are running and won't be removed with y; press f to force-remove them", p.running)
+	}
+}
+
+// plural formats a count with its noun, adding an "s" unless n is 1.
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 func (m Model) View() string {
@@ -211,7 +387,17 @@ func (m Model) titleView() string {
 func (m Model) footerView() string {
 	var s strings.Builder
 
-	s.WriteString(styles.Instructions.Render(m.help.View(m.keys)))
+	if m.confirm != nil {
+		s.WriteString("\n")
+		s.WriteString(styles.Confirm.Render(m.confirm.prompt()))
+		if w := m.confirm.warning(); w != "" {
+			s.WriteString("\n")
+			s.WriteString(styles.Warning.Render(w))
+		}
+		s.WriteString(styles.Instructions.Render(m.help.View(m.confirmKeys)))
+	} else {
+		s.WriteString(styles.Instructions.Render(m.help.View(m.keys)))
+	}
 
 	// Status messages
 	if m.cleaning {
@@ -224,9 +410,21 @@ func (m Model) footerView() string {
 		s.WriteString(styles.Cleaning.Render("🔄 Refreshing..."))
 	}
 
-	if m.successMsg != "" {
+	if r := m.report; r != nil {
 		s.WriteString("\n")
-		s.WriteString(styles.SuccessMessage.Render("✅ " + m.successMsg))
+		if len(r.failures) == 0 {
+			s.WriteString(styles.SuccessMessage.Render("✅ " + r.summary))
+		} else {
+			s.WriteString(styles.ErrorMessage.Render("❌ " + r.summary))
+		}
+		for _, line := range r.failures {
+			s.WriteString("\n")
+			s.WriteString(styles.Warning.Render("  " + line))
+		}
+		if len(r.retry) > 0 {
+			s.WriteString("\n")
+			s.WriteString(styles.Confirm.Render(r.retryHint()))
+		}
 	}
 
 	if m.errorMsg != "" {
@@ -361,6 +559,8 @@ func (m *Model) updateItems() {
 			ID:      img.ID,
 			Type:    ItemTypeImage,
 			Display: fmt.Sprintf("%s (ID: %s, Size: %s)", name, docker.ShortID(img.ID), docker.HumanSize(img.Size)),
+			Size:    img.Size,
+			Name:    name,
 		})
 	}
 
@@ -390,6 +590,9 @@ func (m *Model) updateItems() {
 			ID:      container.ID,
 			Type:    ItemTypeContainer,
 			Display: fmt.Sprintf("%s (ID: %s, Image: %s, State: %s, Size: %s)", name, docker.ShortID(container.ID), container.Image, state, size),
+			Size:    container.SizeRw,
+			State:   container.State,
+			Name:    name,
 		})
 	}
 

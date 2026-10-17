@@ -150,7 +150,7 @@ func TestRefreshKey(t *testing.T) {
 	for _, id := range []string{imgA, imgB, ctrX} {
 		m = toggle(t, m, id)
 	}
-	m.successMsg = "stale success"
+	m.report = &cleanupReport{summary: "Deleted 1"}
 	m.errorMsg = "stale error"
 
 	// imgA vanished and ctrY appeared outside the app.
@@ -159,8 +159,8 @@ func TestRefreshKey(t *testing.T) {
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	m = next.(Model)
-	if m.successMsg != "" || m.errorMsg != "" {
-		t.Errorf("refresh should clear messages, got success=%q error=%q", m.successMsg, m.errorMsg)
+	if m.report != nil || m.errorMsg != "" {
+		t.Errorf("refresh should clear messages, got report=%v error=%q", m.report, m.errorMsg)
 	}
 	if !strings.Contains(m.View(), "Refreshing") {
 		t.Errorf("view should show a refreshing indicator, got:\n%s", m.View())

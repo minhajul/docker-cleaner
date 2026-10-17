@@ -21,13 +21,35 @@ const (
 type CleanupItem struct {
 	ID   string
 	Type CleanupItemType
+	// Force removes the item even if Docker would refuse otherwise: a
+	// running container is killed first, and an image is removed even if
+	// a container uses it or it has several tags.
+	Force bool
+}
+
+// CleanupFailure is an item PerformCleanup could not remove.
+type CleanupFailure struct {
+	Item CleanupItem
+	// Reason says why, readably (e.g. "container is running; stop it
+	// first"). It does not repeat the item's ID.
+	Reason string
+	// Forceable reports whether retrying with Force may succeed. It is set
+	// for images Docker refused with 409 Conflict because a container uses
+	// them or they have several tags.
+	Forceable bool
 }
 
 type ImagesFetchedMsg struct{ Images []client.APIImages }
 type ContainersFetchedMsg struct{ Containers []client.APIContainers }
 type CleanupMsg struct{ ItemsToClean []CleanupItem }
-type CleanupDoneMsg struct{ Message string }
 type ErrMsg struct{ Err error }
+
+// CleanupResultMsg reports the outcome of PerformCleanup for every item it
+// was given: each one is either in Deleted or in Failed.
+type CleanupResultMsg struct {
+	Deleted []CleanupItem
+	Failed  []CleanupFailure
+}
 
 // API is the subset of the Docker client this app uses. Depending on it
 // instead of *client.Client lets tests substitute a fake for a real daemon.
@@ -36,6 +58,7 @@ type API interface {
 	ListImages(opts client.ListImagesOptions) ([]client.APIImages, error)
 	ListContainers(opts client.ListContainersOptions) ([]client.APIContainers, error)
 	RemoveImage(name string) error
+	RemoveImageExtended(name string, opts client.RemoveImageOptions) error
 	RemoveContainer(opts client.RemoveContainerOptions) error
 }
 
@@ -85,54 +108,101 @@ func FetchDockerContainers(cli API) tea.Cmd {
 	}
 }
 
-// PerformCleanup removes the selected Docker images and containers. All
-// containers are removed before any image, since Docker refuses to remove an
-// image that a container still uses; the order within each type is kept.
+// PerformCleanup removes the selected Docker images and containers and
+// reports, item by item, what was deleted and what failed. All containers are
+// removed before any image, since Docker refuses to remove an image that a
+// container still uses; the order within each type is kept.
 func PerformCleanup(cli API, items []CleanupItem) tea.Cmd {
 	items = containersFirst(items)
 	return func() tea.Msg {
-		var errors []string
-		var imageCount, containerCount int
-
+		var result CleanupResultMsg
 		for _, item := range items {
+			var err error
 			switch item.Type {
 			case CleanupItemTypeImage:
-				err := cli.RemoveImage(item.ID)
-				if err != nil {
-					errors = append(errors, fmt.Sprintf("failed to remove image %s: %v", ShortID(item.ID), err))
+				if item.Force {
+					err = cli.RemoveImageExtended(item.ID, client.RemoveImageOptions{Force: true})
 				} else {
-					imageCount++
+					err = cli.RemoveImage(item.ID)
 				}
 			case CleanupItemTypeContainer:
-				err := cli.RemoveContainer(client.RemoveContainerOptions{
+				err = cli.RemoveContainer(client.RemoveContainerOptions{
 					ID:    item.ID,
-					Force: false,
+					Force: item.Force,
 				})
-				if err != nil {
-					errors = append(errors, containerRemoveError(item.ID, err))
-				} else {
-					containerCount++
-				}
+			default:
+				err = fmt.Errorf("unknown item type %d", item.Type)
+			}
+
+			if err != nil {
+				result.Failed = append(result.Failed, removeFailure(item, err))
+			} else {
+				result.Deleted = append(result.Deleted, item)
 			}
 		}
-
-		if len(errors) > 0 {
-			return ErrMsg{fmt.Errorf("cleanup errors: %v", errors)}
-		}
-
-		return CleanupDoneMsg{Message: formatCleanupMessage(imageCount, containerCount)}
+		return result
 	}
 }
 
-// containerRemoveError describes a failed container removal. Containers are
-// removed without Force, so the daemon refuses running ones with 409 Conflict;
-// that case gets a readable hint instead of the raw API error.
-func containerRemoveError(id string, err error) string {
+// removeFailure describes why item could not be removed. Docker answers 409
+// Conflict both for a running container removed without Force and for an
+// image that a container uses or that has several tags; those get readable
+// reasons instead of the raw API error.
+func removeFailure(item CleanupItem, err error) CleanupFailure {
+	f := CleanupFailure{Item: item, Reason: err.Error()}
+
 	var apiErr *client.Error
-	if errors.As(err, &apiErr) && apiErr.Status == http.StatusConflict {
-		return fmt.Sprintf("container %s is running; stop it first", ShortID(id))
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusConflict {
+		return f
 	}
-	return fmt.Sprintf("failed to remove container %s: %v", ShortID(id), err)
+	switch item.Type {
+	case CleanupItemTypeContainer:
+		f.Reason = "container is running; stop it first"
+	case CleanupItemTypeImage:
+		f.Reason = imageConflictReason(apiErr.Message)
+		// The daemon says "cannot be forced" when a running container
+		// uses the image, so a forced retry would fail the same way.
+		f.Forceable = !item.Force && !strings.Contains(apiErr.Message, "cannot be forced")
+	}
+	return f
+}
+
+// imageConflictReason extracts the explanation from the daemon's 409 message
+// for an image: "conflict: unable to delete 0123456789ab (must be forced) -
+// image is referenced in multiple repositories" becomes "image is referenced
+// in multiple repositories".
+func imageConflictReason(msg string) string {
+	if _, reason, ok := strings.Cut(msg, " - "); ok && reason != "" {
+		return reason
+	}
+	if msg != "" {
+		return msg
+	}
+	return "image is in use or has several tags"
+}
+
+// ForceRetry returns the failed items that a forced retry may remove, with
+// Force set.
+func (r CleanupResultMsg) ForceRetry() []CleanupItem {
+	var items []CleanupItem
+	for _, f := range r.Failed {
+		if f.Forceable {
+			item := f.Item
+			item.Force = true
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
+// Summary is a one-line account of the result, e.g. "Deleted 4 · Failed 1".
+// The failure count is left out when nothing failed.
+func (r CleanupResultMsg) Summary() string {
+	s := fmt.Sprintf("Deleted %d", len(r.Deleted))
+	if len(r.Failed) > 0 {
+		s += fmt.Sprintf(" · Failed %d", len(r.Failed))
+	}
+	return s
 }
 
 // containersFirst returns a copy of items with every container ahead of every
@@ -149,35 +219,6 @@ func containersFirst(items []CleanupItem) []CleanupItem {
 		return isImage(a) - isImage(b)
 	})
 	return sorted
-}
-
-// formatCleanupMessage builds the human-readable success message shown after
-// a successful cleanup.
-func formatCleanupMessage(imageCount, containerCount int) string {
-	if imageCount == 0 && containerCount == 0 {
-		return ""
-	}
-
-	var parts []string
-	if imageCount > 0 {
-		if imageCount == 1 {
-			parts = append(parts, "1 image")
-		} else {
-			parts = append(parts, fmt.Sprintf("%d images", imageCount))
-		}
-	}
-	if containerCount > 0 {
-		if containerCount == 1 {
-			parts = append(parts, "1 container")
-		} else {
-			parts = append(parts, fmt.Sprintf("%d containers", containerCount))
-		}
-	}
-
-	if len(parts) == 1 {
-		return fmt.Sprintf("Successfully deleted %s", parts[0])
-	}
-	return fmt.Sprintf("Successfully deleted %s and %s", parts[0], parts[1])
 }
 
 // shortIDLength is the standard Docker short ID length (the first N hex chars
