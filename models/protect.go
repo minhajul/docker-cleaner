@@ -2,7 +2,6 @@ package models
 
 import (
 	"fmt"
-	"slices"
 
 	dockerClient "github.com/fsouza/go-dockerclient"
 	"github.com/minhajul/docker-cleaner/docker"
@@ -12,24 +11,12 @@ import (
 // listedImages returns the images to list, recording every protected one in
 // m.protected. Protected images are left out unless m.showProtected is set.
 // Besides the protector's own rules, an image is protected while a protected
-// container runs on it.
+// container runs on it (see docker.Protector.ProtectedImages).
 func (m *Model) listedImages() []dockerClient.APIImages {
-	var protectedRefs []string
-	for _, c := range m.containers {
-		if m.protector.ContainerReason(c) != docker.NotProtected {
-			protectedRefs = append(protectedRefs, c.Image)
-		}
-	}
-
+	reasons := m.protector.ProtectedImages(m.images, m.containers)
 	out := make([]dockerClient.APIImages, 0, len(m.images))
 	for _, img := range m.images {
-		r := m.protector.ImageReason(img)
-		if r == docker.NotProtected && slices.ContainsFunc(protectedRefs, func(ref string) bool {
-			return docker.ImageMatchesRef(img, ref)
-		}) {
-			r = docker.ReasonUsedByProtected
-		}
-		if r != docker.NotProtected {
+		if r, ok := reasons[img.ID]; ok {
 			m.protected[img.ID] = r
 			if !m.showProtected {
 				continue

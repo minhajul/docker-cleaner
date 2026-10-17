@@ -2,7 +2,6 @@ package models
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/minhajul/docker-cleaner/docker"
@@ -42,7 +41,7 @@ func (m *Model) volumeRows() []SelectableItem {
 			use = "Used by: " + plural(int(refs), "container")
 		}
 
-		name := volumeName(v.Name)
+		name := docker.ShortVolumeName(v.Name)
 		rows = append(rows, SelectableItem{
 			ID:      v.Name,
 			Type:    ItemTypeVolume,
@@ -138,15 +137,6 @@ func ageSuffix(created, now time.Time) string {
 	return ", Created: " + docker.HumanAge(created, now)
 }
 
-// volumeName shortens an anonymous volume's name, a random 64-character hex
-// string, to a short ID; other names are kept whole.
-func volumeName(name string) string {
-	if len(name) == 64 && strings.Trim(name, "0123456789abcdef") == "" {
-		return docker.ShortID(name)
-	}
-	return name
-}
-
 // failureLabel names a failed item in the cleanup report: "<short id> <name>"
 // for images, containers and networks (or just the short ID if the item is no
 // longer listed), the name alone for volumes, whose name is their ID, and
@@ -154,7 +144,7 @@ func volumeName(name string) string {
 func failureLabel(item docker.CleanupItem, name string) string {
 	switch item.Type {
 	case docker.CleanupItemTypeVolume:
-		return volumeName(item.ID)
+		return docker.ShortVolumeName(item.ID)
 	case docker.CleanupItemTypeBuildCache:
 		return "build cache"
 	}
