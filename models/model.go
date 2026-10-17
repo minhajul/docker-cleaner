@@ -82,18 +82,20 @@ type pendingDelete struct {
 	running    int   // selected containers that are running
 }
 
-// InitialModel creates a new Model connected to the Docker daemon. If Docker
-// cannot be reached, an error is returned (and a diagnostic is written to
-// stderr). The caller is responsible for exiting the program on error.
+// InitialModel creates a new Model connected to the Docker daemon, found
+// through DOCKER_HOST or the current Docker context (see
+// docker.ResolveEndpoint). If Docker cannot be reached, an error is returned
+// (and a diagnostic naming the endpoint is written to stderr). The caller is
+// responsible for exiting the program on error.
 func InitialModel() (Model, error) {
-	client, err := dockerClient.NewClientFromEnv()
+	client, endpoint, err := docker.NewClient()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Unable to connect to Docker daemon:", err)
 		return Model{}, err
 	}
 
 	if err := client.Ping(); err != nil {
-		fmt.Fprintln(os.Stderr, styles.ErrorMessage.Render("Docker is not running or unreachable. Please start Docker and try again."))
+		fmt.Fprintln(os.Stderr, styles.ErrorMessage.Render(fmt.Sprintf("Cannot reach Docker at %s. Is it running?", endpoint)))
 		return Model{}, err
 	}
 
