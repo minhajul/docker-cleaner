@@ -304,7 +304,8 @@ func IsSystemImage(img client.APIImages) bool {
 	return false
 }
 
-// FilterUserImages returns images that are not system images.
+// FilterUserImages returns images that are not system images. It applies the
+// built-in system rules only; Protector adds the user's protect-list.
 func FilterUserImages(images []client.APIImages) []client.APIImages {
 	out := make([]client.APIImages, 0, len(images))
 	for _, img := range images {
@@ -315,7 +316,9 @@ func FilterUserImages(images []client.APIImages) []client.APIImages {
 	return out
 }
 
-// FilterUserContainers returns containers that are not system containers.
+// FilterUserContainers returns containers that are not system containers. It
+// applies the built-in system rules only; Protector adds the user's
+// protect-list.
 func FilterUserContainers(containers []client.APIContainers) []client.APIContainers {
 	out := make([]client.APIContainers, 0, len(containers))
 	for _, c := range containers {

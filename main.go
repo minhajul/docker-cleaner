@@ -29,8 +29,18 @@ Usage:
   docker-cleaner [flags]
 
 Flags:
-  -h, --help      Show this help and exit
-  -v, --version   Print the version and exit
+      --config <path>  Read the config file at path instead of the default
+  -h, --help           Show this help and exit
+  -v, --version        Print the version and exit
+
+Config:
+  An optional YAML file lists resources to protect from deletion. It is read
+  from $XDG_CONFIG_HOME/docker-cleaner/config.yaml, or
+  ~/.config/docker-cleaner/config.yaml if XDG_CONFIG_HOME is unset:
+
+    protect:
+      - "postgres:*"   # image tags, image repositories
+      - "my-db"        # and container names; * matches anything
 
 Keys:
   ↑/k, ↓/j      Move the cursor
@@ -38,16 +48,18 @@ Keys:
   a / n         Select all / none
   r             Refresh the lists
   d             Delete selected (asks for confirmation)
+  p             Show or hide protected items
   ?             Show all keys
   q, ctrl+c     Quit
 `
 
 func main() {
-	if code, exit := parseFlags(os.Args[1:], os.Stdout, os.Stderr); exit {
+	opts, code, exit := parseFlags(os.Args[1:], os.Stdout, os.Stderr)
+	if exit {
 		os.Exit(code)
 	}
 
-	m, err := models.InitialModel()
+	m, err := models.InitialModel(opts.configPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, styles.ErrorMessage.Render(fmt.Sprintf("Could not start: %v", err)))
 		os.Exit(1)
@@ -60,9 +72,17 @@ func main() {
 	}
 }
 
-// parseFlags handles the command-line flags. It reports whether the program
-// should exit instead of starting the TUI, and with which exit code.
-func parseFlags(args []string, stdout, stderr io.Writer) (code int, exit bool) {
+// options are the settings taken from the command line.
+type options struct {
+	// configPath is the config file named by --config; empty for the
+	// default location.
+	configPath string
+}
+
+// parseFlags handles the command-line flags. It returns the options to start
+// the TUI with, or reports that the program should exit instead, and with
+// which exit code.
+func parseFlags(args []string, stdout, stderr io.Writer) (opts options, code int, exit bool) {
 	fs := flag.NewFlagSet("docker-cleaner", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { _, _ = fmt.Fprint(fs.Output(), usageText) }
@@ -72,24 +92,25 @@ func parseFlags(args []string, stdout, stderr io.Writer) (code int, exit bool) {
 	fs.BoolVar(&showHelp, "help", false, "")
 	fs.BoolVar(&showVersion, "v", false, "")
 	fs.BoolVar(&showVersion, "version", false, "")
+	fs.StringVar(&opts.configPath, "config", "", "")
 
 	if err := fs.Parse(args); err != nil {
-		return 2, true
+		return options{}, 2, true
 	}
 
 	switch {
 	case showHelp:
 		_, _ = fmt.Fprint(stdout, usageText)
-		return 0, true
+		return options{}, 0, true
 	case showVersion:
 		_, _ = fmt.Fprintln(stdout, versionString())
-		return 0, true
+		return options{}, 0, true
 	case fs.NArg() > 0:
 		_, _ = fmt.Fprintf(stderr, "unexpected argument: %s\n", fs.Arg(0))
 		fs.Usage()
-		return 2, true
+		return options{}, 2, true
 	}
-	return 0, false
+	return opts, 0, false
 }
 
 // versionString describes the build, leaving out whatever is unknown, e.g.

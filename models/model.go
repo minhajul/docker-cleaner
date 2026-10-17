@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbletea"
 	dockerClient "github.com/fsouza/go-dockerclient"
+	"github.com/minhajul/docker-cleaner/config"
 	"github.com/minhajul/docker-cleaner/docker"
 	"github.com/minhajul/docker-cleaner/styles"
 )
@@ -58,6 +59,14 @@ type Model struct {
 	// report describes the last cleanup; nil before the first one and
 	// while a cleanup runs.
 	report *cleanupReport
+	// protector decides which resources are protected from deletion.
+	protector docker.Protector
+	// protected maps the ID of every protected resource in the last fetch,
+	// listed or not, to the reason it is protected.
+	protected map[string]docker.Reason
+	// showProtected lists protected resources as read-only rows instead of
+	// hiding them.
+	showProtected bool
 }
 
 // cleanupReport is what the model shows about a finished cleanup. It is
@@ -93,10 +102,21 @@ func (p *pendingDelete) active() int {
 
 // InitialModel creates a new Model connected to the Docker daemon, found
 // through DOCKER_HOST or the current Docker context (see
-// docker.ResolveEndpoint). If Docker cannot be reached, an error is returned
-// (and a diagnostic naming the endpoint is written to stderr). The caller is
-// responsible for exiting the program on error.
-func InitialModel() (Model, error) {
+// docker.ResolveEndpoint), protecting the resources listed in the config
+// file at configPath (the default location if empty; see config.Load). If
+// the config file is invalid or Docker cannot be reached, an error is
+// returned (and for Docker a diagnostic naming the endpoint is written to
+// stderr). The caller is responsible for exiting the program on error.
+func InitialModel(configPath string) (Model, error) {
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return Model{}, err
+	}
+	protector, err := docker.NewProtector(cfg.Protect)
+	if err != nil {
+		return Model{}, err
+	}
+
 	client, endpoint, err := docker.NewClient()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Unable to connect to Docker daemon:", err)
@@ -108,7 +128,9 @@ func InitialModel() (Model, error) {
 		return Model{}, err
 	}
 
-	return newModel(client), nil
+	m := newModel(client)
+	m.protector = protector
+	return m, nil
 }
 
 // newModel returns a ready-to-use Model backed by cli. Tests pass a fake.
@@ -188,6 +210,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.ForceRetry):
 			// Enabled only while m.report.retry is non-empty.
 			return m.startCleanup(m.report.retry)
+
+		case key.Matches(msg, m.keys.ShowProtected):
+			m.toggleShowProtected()
 
 		case key.Matches(msg, m.keys.Delete):
 			// Open the confirmation dialog; nothing is deleted until the
@@ -427,6 +452,12 @@ func (m Model) titleView() string {
 func (m Model) footerView() string {
 	var s strings.Builder
 
+	if hint := m.protectedHint(); hint != "" {
+		// Directly under the list, above the help's top margin.
+		s.WriteString(styles.ProtectedHint.Render(hint))
+		s.WriteString("\n")
+	}
+
 	if m.confirm != nil {
 		s.WriteString("\n")
 		s.WriteString(styles.Confirm.Render(m.confirm.prompt()))
@@ -478,12 +509,12 @@ func (m Model) footerView() string {
 // getSelectionForCleanup returns the selected items, containers first so an
 // image is never removed before a container that uses it, and otherwise in
 // list order. Iterating m.items rather than the selection map keeps the order
-// deterministic.
+// deterministic. Protected items are never included, even if selected.
 func (m *Model) getSelectionForCleanup() []docker.CleanupItem {
 	var items []docker.CleanupItem
 	for _, typ := range []ItemType{ItemTypeContainer, ItemTypeImage} {
 		for _, item := range m.items {
-			if item.Type != typ {
+			if item.Type != typ || m.isProtected(item) {
 				continue
 			}
 			if _, ok := m.selected[item.ID]; ok {
@@ -526,11 +557,12 @@ func (m *Model) sectionItems(header int) []SelectableItem {
 
 // allSelected reports whether every selectable row in items is selected. It
 // is false for a list with no selectable rows, so toggling an empty section
-// tries to select (a no-op) rather than deselect.
+// tries to select (a no-op) rather than deselect. Protected rows are not
+// selectable.
 func (m *Model) allSelected(items []SelectableItem) bool {
 	found := false
 	for _, item := range items {
-		if item.Type == ItemTypeHeader {
+		if item.Type == ItemTypeHeader || m.isProtected(item) {
 			continue
 		}
 		if _, ok := m.selected[item.ID]; !ok {
@@ -542,13 +574,13 @@ func (m *Model) allSelected(items []SelectableItem) bool {
 }
 
 // setSelected selects (on) or deselects every non-header row in items.
-// Header rows are skipped so they never enter the selection.
+// Header and protected rows are skipped so they never enter the selection.
 func (m *Model) setSelected(items []SelectableItem, on bool) {
 	if m.selected == nil {
 		m.selected = make(map[string]struct{})
 	}
 	for _, item := range items {
-		if item.Type == ItemTypeHeader {
+		if item.Type == ItemTypeHeader || m.isProtected(item) {
 			continue
 		}
 		if on {
@@ -560,12 +592,13 @@ func (m *Model) setSelected(items []SelectableItem, on bool) {
 }
 
 // reconcileSelection keeps the selection and cursor consistent with a freshly
-// rebuilt m.items: selected IDs that are no longer listed are dropped, and the
-// cursor is clamped into range (0 when the list is empty).
+// rebuilt m.items: selected IDs that are no longer listed, or are now
+// protected, are dropped, and the cursor is clamped into range (0 when the
+// list is empty).
 func (m *Model) reconcileSelection() {
 	listed := make(map[string]struct{}, len(m.items))
 	for _, item := range m.items {
-		if item.Type != ItemTypeHeader {
+		if item.Type != ItemTypeHeader && !m.isProtected(item) {
 			listed[item.ID] = struct{}{}
 		}
 	}
@@ -581,8 +614,9 @@ func (m *Model) reconcileSelection() {
 func (m *Model) updateItems() {
 	m.items = []SelectableItem{}
 
-	images := docker.FilterUserImages(m.images)
-	containers := docker.FilterUserContainers(m.containers)
+	m.protected = make(map[string]docker.Reason)
+	images := m.listedImages()
+	containers := m.listedContainers()
 
 	// Add images section
 	m.items = append(m.items, SelectableItem{
