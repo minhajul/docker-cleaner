@@ -25,6 +25,12 @@ type SelectableItem struct {
 	ID      string
 	Type    ItemType
 	Display string
+	// Size is the disk space deleting the item frees: an image's Size, or a
+	// container's writable layer (SizeRw).
+	Size int64
+	// State is a container's state as reported by Docker (e.g. "running");
+	// empty for images and headers.
+	State string
 }
 
 type Model struct {
@@ -39,6 +45,21 @@ type Model struct {
 	cleaning     bool
 	keys         keyMap
 	help         help.Model
+	// confirm is the delete awaiting the user's answer; nil when the
+	// confirmation dialog is closed.
+	confirm     *pendingDelete
+	confirmKeys confirmKeyMap
+}
+
+// pendingDelete is a snapshot of the selection taken when the user presses
+// delete, along with the totals the confirmation dialog shows. The selection
+// cannot change while the dialog is open, so the snapshot stays accurate.
+type pendingDelete struct {
+	items      []docker.CleanupItem
+	images     int
+	containers int
+	size       int64 // bytes freed: images' Size plus containers' SizeRw
+	running    int   // selected containers that are running
 }
 
 // InitialModel creates a new Model connected to the Docker daemon. If Docker
@@ -66,6 +87,7 @@ func newModel(cli docker.API) Model {
 		dockerClient: cli,
 		keys:         defaultKeyMap(),
 		help:         help.New(),
+		confirmKeys:  defaultConfirmKeyMap(),
 	}
 }
 
@@ -82,6 +104,9 @@ func (m Model) refreshCmd() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.confirm != nil {
+			return m.updateConfirm(msg)
+		}
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
@@ -113,17 +138,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case key.Matches(msg, m.keys.Delete):
+			// Open the confirmation dialog; nothing is deleted until the
+			// user answers it (see updateConfirm).
 			if len(m.selected) > 0 {
-				// Clear previous messages when starting new cleanup
-				m.errorMsg = ""
-				m.successMsg = ""
-				m.cleaning = true
-				// Snapshot now: the command runs on another goroutine and
-				// must not read m.selected while Update mutates it.
-				items := m.getSelectionForCleanup()
-				return m, func() tea.Msg {
-					return docker.CleanupMsg{ItemsToClean: items}
-				}
+				m.confirm = m.newPendingDelete()
+				m.confirmKeys.Force.SetEnabled(m.confirm.running > 0)
 			}
 		}
 
@@ -155,6 +174,104 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// updateConfirm handles a key press while the confirmation dialog is open.
+// The dialog closes on any key: y deletes, f (offered only when a selected
+// container is running) deletes with containers force-removed, ctrl+c quits,
+// and everything else cancels.
+func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	pending := m.confirm
+	m.confirm = nil
+	switch {
+	case key.Matches(msg, m.confirmKeys.Quit):
+		return m, tea.Quit
+
+	case key.Matches(msg, m.confirmKeys.Force):
+		for i := range pending.items {
+			if pending.items[i].Type == docker.CleanupItemTypeContainer {
+				pending.items[i].Force = true
+			}
+		}
+		return m.startCleanup(pending.items)
+
+	case key.Matches(msg, m.confirmKeys.Yes):
+		return m.startCleanup(pending.items)
+	}
+	return m, nil
+}
+
+// startCleanup clears the previous status and returns the command that
+// removes items. items must be a snapshot: the command runs on another
+// goroutine and must not read m.selected while Update mutates it.
+func (m Model) startCleanup(items []docker.CleanupItem) (Model, tea.Cmd) {
+	m.errorMsg = ""
+	m.successMsg = ""
+	m.cleaning = true
+	return m, func() tea.Msg {
+		return docker.CleanupMsg{ItemsToClean: items}
+	}
+}
+
+// newPendingDelete snapshots the current selection for the confirmation
+// dialog, totalling it from the per-row Size and State set by updateItems.
+func (m *Model) newPendingDelete() *pendingDelete {
+	rows := make(map[string]SelectableItem, len(m.items))
+	for _, item := range m.items {
+		if item.Type != ItemTypeHeader {
+			rows[item.ID] = item
+		}
+	}
+
+	p := &pendingDelete{items: m.getSelectionForCleanup()}
+	for _, it := range p.items {
+		row := rows[it.ID]
+		p.size += row.Size
+		switch row.Type {
+		case ItemTypeImage:
+			p.images++
+		case ItemTypeContainer:
+			p.containers++
+			if row.State == "running" {
+				p.running++
+			}
+		}
+	}
+	return p
+}
+
+// prompt is the dialog's question, e.g. "Delete 3 images, 2 containers
+// (1.4 GB)? y/N".
+func (p *pendingDelete) prompt() string {
+	var parts []string
+	if p.images > 0 {
+		parts = append(parts, plural(p.images, "image"))
+	}
+	if p.containers > 0 {
+		parts = append(parts, plural(p.containers, "container"))
+	}
+	return fmt.Sprintf("Delete %s (%s)? y/N", strings.Join(parts, ", "), docker.HumanSize(p.size))
+}
+
+// warning explains what happens to running containers, or returns "" when
+// none are selected.
+func (p *pendingDelete) warning() string {
+	switch p.running {
+	case 0:
+		return ""
+	case 1:
+		return "⚠ 1 container is running and won't be removed with y; press f to force-remove it"
+	default:
+		return fmt.Sprintf("⚠ %d containers are running and won't be removed with y; press f to force-remove them", p.running)
+	}
+}
+
+// plural formats a count with its noun, adding an "s" unless n is 1.
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 func (m Model) View() string {
@@ -198,7 +315,17 @@ func (m Model) View() string {
 		s.WriteString("\n")
 	}
 
-	s.WriteString(styles.Instructions.Render(m.help.View(m.keys)))
+	if m.confirm != nil {
+		s.WriteString("\n")
+		s.WriteString(styles.Confirm.Render(m.confirm.prompt()))
+		if w := m.confirm.warning(); w != "" {
+			s.WriteString("\n")
+			s.WriteString(styles.Warning.Render(w))
+		}
+		s.WriteString(styles.Instructions.Render(m.help.View(m.confirmKeys)))
+	} else {
+		s.WriteString(styles.Instructions.Render(m.help.View(m.keys)))
+	}
 
 	// Status messages
 	if m.cleaning {
@@ -281,6 +408,7 @@ func (m *Model) updateItems() {
 			ID:      img.ID,
 			Type:    ItemTypeImage,
 			Display: fmt.Sprintf("%s (ID: %s, Size: %s)", name, docker.ShortID(img.ID), docker.HumanSize(img.Size)),
+			Size:    img.Size,
 		})
 	}
 
@@ -310,6 +438,8 @@ func (m *Model) updateItems() {
 			ID:      container.ID,
 			Type:    ItemTypeContainer,
 			Display: fmt.Sprintf("%s (ID: %s, Image: %s, State: %s, Size: %s)", name, docker.ShortID(container.ID), container.Image, state, size),
+			Size:    container.SizeRw,
+			State:   container.State,
 		})
 	}
 

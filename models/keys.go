@@ -57,3 +57,48 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.Help, k.Quit},
 	}
 }
+
+// confirmKeyMap holds the keys of the delete confirmation dialog. While the
+// dialog is open, Update handles only these and the footer renders them in
+// place of keyMap.
+type confirmKeyMap struct {
+	Yes   key.Binding
+	Force key.Binding // enabled only while a selected container is running
+	No    key.Binding
+	Quit  key.Binding
+}
+
+func defaultConfirmKeyMap() confirmKeyMap {
+	return confirmKeyMap{
+		Yes: key.NewBinding(
+			key.WithKeys("y", "Y"),
+			key.WithHelp("y", "delete"),
+		),
+		Force: key.NewBinding(
+			key.WithKeys("f", "F"),
+			key.WithHelp("f", "force delete"),
+		),
+		// Any key other than Yes, Force and Quit cancels; No just names the
+		// obvious ones in the footer.
+		No: key.NewBinding(
+			key.WithKeys("n", "N", "esc"),
+			key.WithHelp("n/esc", "cancel"),
+		),
+		Quit: key.NewBinding(
+			key.WithKeys("ctrl+c"),
+			key.WithHelp("ctrl+c", "quit"),
+		),
+	}
+}
+
+// ShortHelp implements help.KeyMap. help.Model leaves out disabled bindings,
+// so Force only shows when it applies.
+func (k confirmKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Yes, k.Force, k.No, k.Quit}
+}
+
+// FullHelp implements help.KeyMap. The dialog has so few keys that the full
+// view is the short one.
+func (k confirmKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{k.ShortHelp()}
+}

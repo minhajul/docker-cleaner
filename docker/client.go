@@ -21,6 +21,9 @@ const (
 type CleanupItem struct {
 	ID   string
 	Type CleanupItemType
+	// Force removes the item even if Docker would refuse otherwise: for a
+	// container, it is killed first if running.
+	Force bool
 }
 
 type ImagesFetchedMsg struct{ Images []client.APIImages }
@@ -106,7 +109,7 @@ func PerformCleanup(cli API, items []CleanupItem) tea.Cmd {
 			case CleanupItemTypeContainer:
 				err := cli.RemoveContainer(client.RemoveContainerOptions{
 					ID:    item.ID,
-					Force: false,
+					Force: item.Force,
 				})
 				if err != nil {
 					errors = append(errors, containerRemoveError(item.ID, err))
@@ -124,9 +127,10 @@ func PerformCleanup(cli API, items []CleanupItem) tea.Cmd {
 	}
 }
 
-// containerRemoveError describes a failed container removal. Containers are
-// removed without Force, so the daemon refuses running ones with 409 Conflict;
-// that case gets a readable hint instead of the raw API error.
+// containerRemoveError describes a failed container removal. Unless the user
+// confirmed a forced delete, containers are removed without Force, so the
+// daemon refuses running ones with 409 Conflict; that case gets a readable
+// hint instead of the raw API error.
 func containerRemoveError(id string, err error) string {
 	var apiErr *client.Error
 	if errors.As(err, &apiErr) && apiErr.Status == http.StatusConflict {
