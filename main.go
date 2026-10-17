@@ -23,7 +23,7 @@ var (
 	date    = ""
 )
 
-const usageText = `docker-cleaner - remove Docker images and containers from a terminal UI.
+const usageText = `docker-cleaner - remove Docker images, containers, volumes, networks and build cache from a terminal UI.
 
 Usage:
   docker-cleaner [flags]

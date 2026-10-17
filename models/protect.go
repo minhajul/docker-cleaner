@@ -55,6 +55,40 @@ func (m *Model) listedContainers() []dockerClient.APIContainers {
 	return out
 }
 
+// listedVolumes is listedImages for volumes.
+func (m *Model) listedVolumes() []dockerClient.Volume {
+	out := make([]dockerClient.Volume, 0, len(m.volumes))
+	for _, v := range m.volumes {
+		if r := m.protector.VolumeReason(v); r != docker.NotProtected {
+			m.protected[v.Name] = r
+			if !m.showProtected {
+				continue
+			}
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// listedNetworks is listedImages for networks. The daemon's predefined
+// networks are never listed or counted as protected.
+func (m *Model) listedNetworks() []dockerClient.Network {
+	out := make([]dockerClient.Network, 0, len(m.networks))
+	for _, n := range m.networks {
+		if docker.IsPredefinedNetwork(n) {
+			continue
+		}
+		if r := m.protector.NetworkReason(n); r != docker.NotProtected {
+			m.protected[n.ID] = r
+			if !m.showProtected {
+				continue
+			}
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
 // isProtected reports whether item is a protected resource, which can be
 // listed (read-only) but never selected or deleted.
 func (m *Model) isProtected(item SelectableItem) bool {

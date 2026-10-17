@@ -1,0 +1,177 @@
+package models
+
+import (
+	"fmt"
+	"strings"
+
+	dockerClient "github.com/fsouza/go-dockerclient"
+	"github.com/minhajul/docker-cleaner/docker"
+)
+
+// Section headers of the resources listed after images and containers. Each
+// section is left out while it has nothing to show.
+const (
+	volumesHeader    = "💾 Volumes"
+	networksHeader   = "🔗 Networks"
+	buildCacheHeader = "🧱 Build cache"
+)
+
+// volumeRows returns the Volumes section: its header and one row per listed
+// volume (see listedVolumes), or nothing if there are none. Sizes and use
+// counts come from the daemon's disk usage; until it arrives, or if it
+// failed, a volume's size is unknown and its use is counted from the listed
+// containers' mounts.
+func (m *Model) volumeRows() []SelectableItem {
+	volumes := m.listedVolumes()
+	if len(volumes) == 0 {
+		return nil
+	}
+
+	header := volumesHeader
+	if m.diskUsageErr != nil {
+		header += " (sizes unavailable)"
+	}
+	rows := []SelectableItem{{Type: ItemTypeHeader, Display: header}}
+
+	for _, v := range volumes {
+		usage, known := m.diskUsage.Volumes[v.Name]
+		size := "unknown"
+		var bytes int64
+		if known && usage.Size >= 0 {
+			bytes = usage.Size
+			size = docker.HumanSize(bytes)
+		}
+		refs := int64(m.volumeMounts(v.Name))
+		if known && usage.RefCount >= 0 {
+			refs = usage.RefCount
+		}
+		use := "Unused"
+		if refs > 0 {
+			use = "Used by: " + plural(int(refs), "container")
+		}
+
+		name := volumeName(v.Name)
+		rows = append(rows, SelectableItem{
+			ID:      v.Name,
+			Type:    ItemTypeVolume,
+			Display: fmt.Sprintf("%s (Driver: %s, Size: %s, %s)", name, v.Driver, size, use),
+			Size:    bytes,
+			Name:    name,
+		})
+	}
+	return rows
+}
+
+// volumeMounts counts the listed containers, running or not, that mount the
+// volume called name.
+func (m *Model) volumeMounts(name string) int {
+	n := 0
+	for _, c := range m.containers {
+		for _, mount := range c.Mounts {
+			if mount.Type == "volume" && mount.Name == name {
+				n++
+				break
+			}
+		}
+	}
+	return n
+}
+
+// networkRows returns the Networks section: its header and one row per
+// listed network (see listedNetworks), or nothing if there are none.
+// Networks free no measurable space, so their Size is 0.
+func (m *Model) networkRows() []SelectableItem {
+	networks := m.listedNetworks()
+	if len(networks) == 0 {
+		return nil
+	}
+
+	rows := []SelectableItem{{Type: ItemTypeHeader, Display: networksHeader}}
+	for _, n := range networks {
+		rows = append(rows, SelectableItem{
+			ID:   n.ID,
+			Type: ItemTypeNetwork,
+			Display: fmt.Sprintf("%s (ID: %s, Driver: %s, Containers: %d)",
+				n.Name, docker.ShortID(n.ID), n.Driver, m.networkContainers(n)),
+			Name: n.Name,
+		})
+	}
+	return rows
+}
+
+// networkContainers counts the containers attached to n. The daemon's
+// network list leaves them out, so they are taken from the listed
+// containers' network settings, along with any the network does report.
+func (m *Model) networkContainers(n dockerClient.Network) int {
+	attached := make(map[string]struct{}, len(n.Containers))
+	for id := range n.Containers {
+		attached[id] = struct{}{}
+	}
+	for _, c := range m.containers {
+		for name, settings := range c.Networks.Networks {
+			if settings.NetworkID == n.ID || (settings.NetworkID == "" && name == n.Name) {
+				attached[c.ID] = struct{}{}
+			}
+		}
+	}
+	return len(attached)
+}
+
+// buildCacheRows returns the Build cache section: its header and a single
+// row standing for the whole cache, e.g. "Build cache: 312 entries, 4.1 GB
+// reclaimable". There is nothing to show while the disk usage has not
+// arrived or the cache has nothing reclaimable; if the disk usage could not
+// be fetched, the header alone says so.
+func (m *Model) buildCacheRows() []SelectableItem {
+	if m.diskUsageErr != nil {
+		return []SelectableItem{{
+			Type:    ItemTypeHeader,
+			Display: fmt.Sprintf("%s (unavailable: %v)", buildCacheHeader, m.diskUsageErr),
+		}}
+	}
+	bc := m.diskUsage.BuildCache
+	if bc.Reclaimable <= 0 {
+		return nil
+	}
+	entries := fmt.Sprintf("%d entries", bc.Entries)
+	if bc.Entries == 1 {
+		entries = "1 entry"
+	}
+	return []SelectableItem{
+		{Type: ItemTypeHeader, Display: buildCacheHeader},
+		{
+			ID:      docker.BuildCacheID,
+			Type:    ItemTypeBuildCache,
+			Display: fmt.Sprintf("Build cache: %s, %s reclaimable", entries, docker.HumanSize(bc.Reclaimable)),
+			Size:    bc.Reclaimable,
+			Name:    "build cache",
+		},
+	}
+}
+
+// volumeName shortens an anonymous volume's name, a random 64-character hex
+// string, to a short ID; other names are kept whole.
+func volumeName(name string) string {
+	if len(name) == 64 && strings.Trim(name, "0123456789abcdef") == "" {
+		return docker.ShortID(name)
+	}
+	return name
+}
+
+// failureLabel names a failed item in the cleanup report: "<short id> <name>"
+// for images, containers and networks (or just the short ID if the item is no
+// longer listed), the name alone for volumes, whose name is their ID, and
+// "build cache" for the build cache.
+func failureLabel(item docker.CleanupItem, name string) string {
+	switch item.Type {
+	case docker.CleanupItemTypeVolume:
+		return volumeName(item.ID)
+	case docker.CleanupItemTypeBuildCache:
+		return "build cache"
+	}
+	label := docker.ShortID(item.ID)
+	if name != "" {
+		label += " " + name
+	}
+	return label
+}

@@ -4,14 +4,14 @@
 [![Release](https://img.shields.io/github/v/release/minhajul/docker-cleaner)](https://github.com/minhajul/docker-cleaner/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A terminal UI for finding and removing Docker images and containers, built with Go and [Bubble Tea](https://github.com/charmbracelet/bubbletea).
+A terminal UI for finding and removing Docker images, containers, volumes, networks and build cache, built with Go and [Bubble Tea](https://github.com/charmbracelet/bubbletea).
 
 ![Screenshot](art/screenshot.png)
 
 ### Features
 
-- Lists your images and containers (running and stopped) with their sizes and state
-- Hides Kubernetes, minikube, k3s and kind system images and containers so you can't break your cluster, plus anything you list in a [protect-list](#protecting-resources)
+- Lists your images, containers (running and stopped), volumes, networks and build cache, with sizes, state and what is in use
+- Hides Kubernetes, minikube, k3s and kind system resources so you can't break your cluster, plus anything you list in a [protect-list](#protecting-resources)
 - Select items one by one, a whole section, or everything
 - Asks before deleting, shows how much space will be freed, and warns about running containers
 - Reports each failure with its reason, and offers a forced retry for images that are in use or have several tags
@@ -69,7 +69,7 @@ docker-cleaner --config <path>   Use another config file
 
 ### Protecting resources
 
-Images and containers you never want to delete can be listed in a config file at `~/.config/docker-cleaner/config.yaml` (or `$XDG_CONFIG_HOME/docker-cleaner/config.yaml` if `XDG_CONFIG_HOME` is set; macOS uses the same path). Pass `--config <path>` to use another file. The file is optional.
+Resources you never want to delete can be listed in a config file at `~/.config/docker-cleaner/config.yaml` (or `$XDG_CONFIG_HOME/docker-cleaner/config.yaml` if `XDG_CONFIG_HOME` is set; macOS uses the same path). Pass `--config <path>` to use another file. The file is optional.
 
 ```yaml
 # Resources matching any pattern are hidden and can't be deleted.
@@ -88,6 +88,7 @@ Matching rules:
 - Every pattern is checked against every resource:
   - an **image** by each tag and each tag's repository, so `postgres` and `postgres:*` protect every `postgres` tag, while `postgres:16` protects only that tag. Untagged (`<none>`) images match nothing.
   - a **container** by its name, without Docker's leading `/` (a leading `/` on a pattern is ignored too). A container is not protected by its image's name, but the image a protected container runs on is protected too, so it can't be untagged from under it.
+  - a **volume** or **network** by its name. Docker's predefined `bridge`, `host` and `none` networks are never listed.
 
 | Pattern | Matches | Doesn't match |
 |---|---|---|

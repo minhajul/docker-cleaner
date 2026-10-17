@@ -111,6 +111,30 @@ func (p Protector) ContainerReason(c client.APIContainers) Reason {
 	return NotProtected
 }
 
+// VolumeReason reports why v is protected, or NotProtected. Volumes are
+// matched by name.
+func (p Protector) VolumeReason(v client.Volume) Reason {
+	if IsSystemVolume(v) {
+		return ReasonSystem
+	}
+	if p.matchesAny(v.Name) {
+		return ReasonProtectList
+	}
+	return NotProtected
+}
+
+// NetworkReason reports why n is protected, or NotProtected. Networks are
+// matched by name.
+func (p Protector) NetworkReason(n client.Network) Reason {
+	if IsSystemNetwork(n) {
+		return ReasonSystem
+	}
+	if p.matchesAny(n.Name) {
+		return ReasonProtectList
+	}
+	return NotProtected
+}
+
 // ProtectsImage reports whether img must be hidden and never deleted.
 func (p Protector) ProtectsImage(img client.APIImages) bool {
 	return p.ImageReason(img) != NotProtected

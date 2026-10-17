@@ -252,17 +252,38 @@ func contextTLS(configDir, name string) (*TLSFiles, error) {
 // the client and that endpoint, with Host filled in. It does not contact the
 // daemon; call Ping to check that it is reachable.
 //
-// For SourceDockerHost and SourceDefault the client comes from
-// client.NewClientFromEnv, which also honours DOCKER_TLS_VERIFY,
+// For SourceDockerHost and SourceDefault the go-dockerclient client comes
+// from client.NewClientFromEnv, which also honours DOCKER_TLS_VERIFY,
 // DOCKER_CERT_PATH and DOCKER_API_VERSION. A context's client honours
-// DOCKER_API_VERSION too.
-func NewClient() (*client.Client, Endpoint, error) {
+// DOCKER_API_VERSION too. The moby client is then pointed at the same host,
+// with the same TLS material and pinned API version, if any.
+func NewClient() (*Client, Endpoint, error) {
 	home, _ := os.UserHomeDir() // "" is handled: only DOCKER_CONFIG is then used
 	ep, err := ResolveEndpoint(os.Getenv, ConfigDir(os.Getenv, home))
 	if err != nil {
 		return nil, ep, err
 	}
 
+	apiVersion := os.Getenv("DOCKER_API_VERSION")
+	cli, ep, err := newDockerClient(ep, apiVersion)
+	if err != nil {
+		return nil, ep, err
+	}
+
+	tlsFiles := ep.TLS
+	if ep.Source == SourceDockerHost || ep.Source == SourceDefault {
+		tlsFiles = envTLS(os.Getenv, home)
+	}
+	moby, err := newMobyClient(ep.Host, tlsFiles, apiVersion)
+	if err != nil {
+		return nil, ep, fmt.Errorf("connecting to %s: %w", ep, err)
+	}
+	return &Client{Client: cli, moby: moby}, ep, nil
+}
+
+// newDockerClient returns the go-dockerclient client for ep, and ep with
+// Host filled in. See NewClient.
+func newDockerClient(ep Endpoint, apiVersion string) (*client.Client, Endpoint, error) {
 	if ep.Source == SourceDockerHost || ep.Source == SourceDefault {
 		cli, err := client.NewClientFromEnv()
 		if err != nil {
@@ -272,8 +293,10 @@ func NewClient() (*client.Client, Endpoint, error) {
 		return cli, ep, nil
 	}
 
-	apiVersion := os.Getenv("DOCKER_API_VERSION")
-	var cli *client.Client
+	var (
+		cli *client.Client
+		err error
+	)
 	if ep.TLS != nil {
 		cli, err = client.NewVersionedTLSClient(ep.Host, ep.TLS.Cert, ep.TLS.Key, ep.TLS.CA, apiVersion)
 	} else {
