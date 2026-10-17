@@ -1,4 +1,4 @@
-module docker-cleaner
+module github.com/minhajul/docker-cleaner
 
 go 1.25.5
 

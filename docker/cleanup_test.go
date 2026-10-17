@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	"docker-cleaner/docker"
-	"docker-cleaner/docker/dockertest"
+	"github.com/minhajul/docker-cleaner/docker"
+	"github.com/minhajul/docker-cleaner/docker/dockertest"
 
 	client "github.com/fsouza/go-dockerclient"
 )

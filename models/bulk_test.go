@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"docker-cleaner/docker/dockertest"
 	tea "github.com/charmbracelet/bubbletea"
 	dockerClient "github.com/fsouza/go-dockerclient"
+	"github.com/minhajul/docker-cleaner/docker/dockertest"
 )
 
 const ctrY = "yyyyyyyyyyyyyyyy"

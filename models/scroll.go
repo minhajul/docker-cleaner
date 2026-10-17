@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"docker-cleaner/styles"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/minhajul/docker-cleaner/styles"
 )
 
 // window is the part of the list View draws: rows [start, end), preceded by

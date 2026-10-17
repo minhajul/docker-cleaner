@@ -5,8 +5,8 @@ import (
 	"log"
 	"os"
 
-	"docker-cleaner/models"
-	"docker-cleaner/styles"
+	"github.com/minhajul/docker-cleaner/models"
+	"github.com/minhajul/docker-cleaner/styles"
 
 	"github.com/charmbracelet/bubbletea"
 )

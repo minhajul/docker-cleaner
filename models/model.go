@@ -5,12 +5,12 @@ import (
 	"os"
 	"strings"
 
-	"docker-cleaner/docker"
-	"docker-cleaner/styles"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbletea"
 	dockerClient "github.com/fsouza/go-dockerclient"
+	"github.com/minhajul/docker-cleaner/docker"
+	"github.com/minhajul/docker-cleaner/styles"
 )
 
 type ItemType int
