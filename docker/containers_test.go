@@ -61,6 +61,16 @@ func TestPerformCleanupContainerErrors(t *testing.T) {
 			want: "container is running; stop it first",
 		},
 		{
+			name: "paused container",
+			err:  &client.Error{Status: http.StatusConflict, Message: "cannot remove a paused container: unpause and then stop the container before attempting removal or force remove"},
+			want: "container is paused; unpause and stop it first",
+		},
+		{
+			name: "restarting container",
+			err:  &client.Error{Status: http.StatusConflict, Message: "cannot remove a restarting container: stop the container before attempting removal or force remove"},
+			want: "container is restarting; stop it first",
+		},
+		{
 			name: "other API error",
 			err:  &client.Error{Status: http.StatusInternalServerError, Message: "boom"},
 			want: "API error (500): boom",

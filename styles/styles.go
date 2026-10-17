@@ -10,6 +10,10 @@ var (
 		Foreground(lipgloss.Color("#7C3AED")).
 		MarginBottom(1)
 
+	// Summary is the style for the disk usage summary under the title.
+	Summary = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#9CA3AF"))
+
 	// Header is the style for section headers.
 	Header = lipgloss.NewStyle().
 		Bold(true).
@@ -38,6 +42,12 @@ var (
 	SelectedItem = lipgloss.NewStyle().
 			PaddingLeft(1).
 			Foreground(lipgloss.Color("#10B981"))
+
+	// SelectedCount is the style for the footer line counting the selected
+	// items and the space deleting them frees.
+	SelectedCount = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#10B981")).
+			Bold(true)
 
 	// ErrorMessage is the style for error messages.
 	ErrorMessage = lipgloss.NewStyle().
@@ -78,4 +88,21 @@ var (
 	ScrollIndicator = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#6B7280")).
 			Faint(true)
+
+	// Protected is the style for the text of a protected row, listed
+	// read-only after the user reveals protected items.
+	Protected = lipgloss.NewStyle().
+			PaddingLeft(1).
+			Foreground(lipgloss.Color("#6B7280")).
+			Faint(true)
+
+	// ProtectedHint is the style for the line saying how many protected
+	// items there are and how to reveal or hide them.
+	ProtectedHint = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6B7280"))
+
+	// FilterBar is the style for the status line naming the active filters
+	// and search, and for notes about items they hide.
+	FilterBar = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#3B82F6"))
 )

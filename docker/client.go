@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/bubbletea"
 	client "github.com/fsouza/go-dockerclient"
+	mobyclient "github.com/moby/moby/client"
 )
 
 type CleanupItemType int
@@ -16,14 +18,38 @@ type CleanupItemType int
 const (
 	CleanupItemTypeImage CleanupItemType = iota + 1 // Start from 1 to match ItemType from models
 	CleanupItemTypeContainer
+	// CleanupItemTypeVolume is a volume; its ID is the volume's name.
+	CleanupItemTypeVolume
+	// CleanupItemTypeNetwork is a network; its ID is the network's ID.
+	CleanupItemTypeNetwork
+	// CleanupItemTypeBuildCache is the builder's cache as a whole; its ID
+	// is BuildCacheID.
+	CleanupItemTypeBuildCache
 )
+
+// RemovalOrder returns the item types in the order PerformCleanup removes
+// them: containers first, since they hold on to images, volumes and
+// networks; then images, whose removal can leave more build cache unused;
+// then volumes and networks; and the build cache last.
+func RemovalOrder() []CleanupItemType {
+	return []CleanupItemType{
+		CleanupItemTypeContainer,
+		CleanupItemTypeImage,
+		CleanupItemTypeVolume,
+		CleanupItemTypeNetwork,
+		CleanupItemTypeBuildCache,
+	}
+}
 
 type CleanupItem struct {
 	ID   string
 	Type CleanupItemType
 	// Force removes the item even if Docker would refuse otherwise: a
 	// running container is killed first, and an image is removed even if
-	// a container uses it or it has several tags.
+	// a container uses it or it has several tags. For the build cache it
+	// prunes every unused record, including the internal and frontend
+	// ones a plain prune keeps (see BuildCacheUsage.NeedsAll). Volumes and
+	// networks ignore it.
 	Force bool
 }
 
@@ -49,10 +75,13 @@ type ErrMsg struct{ Err error }
 type CleanupResultMsg struct {
 	Deleted []CleanupItem
 	Failed  []CleanupFailure
+	// BuildCacheReclaimed is the space pruning the build cache freed, in
+	// bytes; 0 if it was not pruned.
+	BuildCacheReclaimed int64
 }
 
 // API is the subset of the Docker client this app uses. Depending on it
-// instead of *client.Client lets tests substitute a fake for a real daemon.
+// instead of *Client lets tests substitute a fake for a real daemon.
 type API interface {
 	Ping() error
 	ListImages(opts client.ListImagesOptions) ([]client.APIImages, error)
@@ -60,9 +89,15 @@ type API interface {
 	RemoveImage(name string) error
 	RemoveImageExtended(name string, opts client.RemoveImageOptions) error
 	RemoveContainer(opts client.RemoveContainerOptions) error
+	ListVolumes(opts client.ListVolumesOptions) ([]client.Volume, error)
+	RemoveVolumeWithOptions(opts client.RemoveVolumeOptions) error
+	ListNetworks() ([]client.Network, error)
+	RemoveNetwork(id string) error
+	DiskUsage(ctx context.Context, opts mobyclient.DiskUsageOptions) (mobyclient.DiskUsageResult, error)
+	BuildCachePrune(ctx context.Context, opts mobyclient.BuildCachePruneOptions) (mobyclient.BuildCachePruneResult, error)
 }
 
-var _ API = (*client.Client)(nil)
+var _ API = (*Client)(nil)
 
 func (e ErrMsg) Error() string {
 	return e.Err.Error()
@@ -108,12 +143,12 @@ func FetchDockerContainers(cli API) tea.Cmd {
 	}
 }
 
-// PerformCleanup removes the selected Docker images and containers and
-// reports, item by item, what was deleted and what failed. All containers are
-// removed before any image, since Docker refuses to remove an image that a
-// container still uses; the order within each type is kept.
+// PerformCleanup removes the selected Docker resources and reports, item by
+// item, what was deleted and what failed. Items are removed by type in
+// RemovalOrder, since Docker refuses to remove an image, volume or network
+// that a container still uses; the order within each type is kept.
 func PerformCleanup(cli API, items []CleanupItem) tea.Cmd {
-	items = containersFirst(items)
+	items = inRemovalOrder(items)
 	return func() tea.Msg {
 		var result CleanupResultMsg
 		for _, item := range items {
@@ -130,6 +165,14 @@ func PerformCleanup(cli API, items []CleanupItem) tea.Cmd {
 					ID:    item.ID,
 					Force: item.Force,
 				})
+			case CleanupItemTypeVolume:
+				err = cli.RemoveVolumeWithOptions(client.RemoveVolumeOptions{Name: item.ID})
+			case CleanupItemTypeNetwork:
+				err = cli.RemoveNetwork(item.ID)
+			case CleanupItemTypeBuildCache:
+				var reclaimed int64
+				reclaimed, err = pruneBuildCache(cli, item.Force)
+				result.BuildCacheReclaimed += reclaimed
 			default:
 				err = fmt.Errorf("unknown item type %d", item.Type)
 			}
@@ -151,13 +194,27 @@ func PerformCleanup(cli API, items []CleanupItem) tea.Cmd {
 func removeFailure(item CleanupItem, err error) CleanupFailure {
 	f := CleanupFailure{Item: item, Reason: err.Error()}
 
+	// go-dockerclient turns the daemon's 409 for a volume into
+	// ErrVolumeInUse, dropping the daemon's message.
+	if errors.Is(err, client.ErrVolumeInUse) {
+		f.Reason = "volume is in use by a container; remove the container first"
+		return f
+	}
+
 	var apiErr *client.Error
-	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusConflict {
+	if !errors.As(err, &apiErr) {
+		return f
+	}
+	if item.Type == CleanupItemTypeNetwork {
+		f.Reason = networkFailureReason(apiErr)
+		return f
+	}
+	if apiErr.Status != http.StatusConflict {
 		return f
 	}
 	switch item.Type {
 	case CleanupItemTypeContainer:
-		f.Reason = "container is running; stop it first"
+		f.Reason = containerConflictReason(apiErr.Message)
 	case CleanupItemTypeImage:
 		f.Reason = imageConflictReason(apiErr.Message)
 		// The daemon says "cannot be forced" when a running container
@@ -165,6 +222,21 @@ func removeFailure(item CleanupItem, err error) CleanupFailure {
 		f.Forceable = !item.Force && !strings.Contains(apiErr.Message, "cannot be forced")
 	}
 	return f
+}
+
+// containerConflictReason says why the daemon refused to remove a container
+// without Force. It refuses running, paused and restarting containers, naming
+// the state in its 409 message (e.g. "cannot remove a paused container: ...");
+// a message that names none is taken to mean running.
+func containerConflictReason(msg string) string {
+	switch {
+	case strings.Contains(msg, "paused"):
+		return "container is paused; unpause and stop it first"
+	case strings.Contains(msg, "restarting"):
+		return "container is restarting; stop it first"
+	default:
+		return "container is running; stop it first"
+	}
 }
 
 // imageConflictReason extracts the explanation from the daemon's 409 message
@@ -195,28 +267,34 @@ func (r CleanupResultMsg) ForceRetry() []CleanupItem {
 	return items
 }
 
-// Summary is a one-line account of the result, e.g. "Deleted 4 · Failed 1".
-// The failure count is left out when nothing failed.
+// Summary is a one-line account of the result, e.g. "Deleted 4 · Failed 1"
+// or "Deleted 2 · Build cache freed 4.1 GB". The failure count is left out
+// when nothing failed, and the space freed unless the build cache was
+// pruned.
 func (r CleanupResultMsg) Summary() string {
 	s := fmt.Sprintf("Deleted %d", len(r.Deleted))
 	if len(r.Failed) > 0 {
 		s += fmt.Sprintf(" · Failed %d", len(r.Failed))
 	}
+	if slices.ContainsFunc(r.Deleted, func(it CleanupItem) bool { return it.Type == CleanupItemTypeBuildCache }) {
+		s += " · Build cache freed " + HumanSize(r.BuildCacheReclaimed)
+	}
 	return s
 }
 
-// containersFirst returns a copy of items with every container ahead of every
-// image, preserving the relative order within each type.
-func containersFirst(items []CleanupItem) []CleanupItem {
+// inRemovalOrder returns a copy of items sorted by type in RemovalOrder,
+// preserving the relative order within each type. Unknown types go last.
+func inRemovalOrder(items []CleanupItem) []CleanupItem {
+	order := RemovalOrder()
+	rank := func(it CleanupItem) int {
+		if i := slices.Index(order, it.Type); i >= 0 {
+			return i
+		}
+		return len(order)
+	}
 	sorted := slices.Clone(items)
 	slices.SortStableFunc(sorted, func(a, b CleanupItem) int {
-		isImage := func(it CleanupItem) int {
-			if it.Type == CleanupItemTypeImage {
-				return 1
-			}
-			return 0
-		}
-		return isImage(a) - isImage(b)
+		return rank(a) - rank(b)
 	})
 	return sorted
 }
@@ -289,7 +367,8 @@ func IsSystemImage(img client.APIImages) bool {
 	return false
 }
 
-// FilterUserImages returns images that are not system images.
+// FilterUserImages returns images that are not system images. It applies the
+// built-in system rules only; Protector adds the user's protect-list.
 func FilterUserImages(images []client.APIImages) []client.APIImages {
 	out := make([]client.APIImages, 0, len(images))
 	for _, img := range images {
@@ -300,7 +379,9 @@ func FilterUserImages(images []client.APIImages) []client.APIImages {
 	return out
 }
 
-// FilterUserContainers returns containers that are not system containers.
+// FilterUserContainers returns containers that are not system containers. It
+// applies the built-in system rules only; Protector adds the user's
+// protect-list.
 func FilterUserContainers(containers []client.APIContainers) []client.APIContainers {
 	out := make([]client.APIContainers, 0, len(containers))
 	for _, c := range containers {

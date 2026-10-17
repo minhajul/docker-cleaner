@@ -42,13 +42,10 @@ func checkFits(t *testing.T, m Model) {
 		t.Fatalf("cursor %d: footer missing:\n%s", m.cursor, view)
 	}
 
-	// A header's top margin puts the cursor on the blank line above its
-	// text, so look at the cursor line and the one after it.
 	var cursorLine string
-	lines := strings.Split(view, "\n")
-	for i, line := range lines {
+	for line := range strings.SplitSeq(view, "\n") {
 		if strings.Contains(line, "▶") {
-			cursorLine = strings.Join(lines[i:min(i+2, len(lines))], "\n")
+			cursorLine = line
 		}
 	}
 	item := m.items[m.cursor]

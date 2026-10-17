@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/minhajul/docker-cleaner/cmd/prune"
 	"github.com/minhajul/docker-cleaner/models"
 	"github.com/minhajul/docker-cleaner/styles"
 
@@ -23,14 +24,30 @@ var (
 	date    = ""
 )
 
-const usageText = `docker-cleaner - remove Docker images and containers from a terminal UI.
+const usageText = `docker-cleaner - remove Docker images, containers, volumes, networks and build cache from a terminal UI.
 
 Usage:
   docker-cleaner [flags]
+  docker-cleaner prune [flags]
+
+Commands:
+  prune          Delete what filters match, without the UI, for scripts, cron
+                 and CI, e.g. docker-cleaner prune --dangling --older-than 7d
+                 --yes. See docker-cleaner prune --help.
 
 Flags:
-  -h, --help      Show this help and exit
-  -v, --version   Print the version and exit
+      --config <path>  Read the config file at path instead of the default
+  -h, --help           Show this help and exit
+  -v, --version        Print the version and exit
+
+Config:
+  An optional YAML file lists resources to protect from deletion. It is read
+  from $XDG_CONFIG_HOME/docker-cleaner/config.yaml, or
+  ~/.config/docker-cleaner/config.yaml if XDG_CONFIG_HOME is unset:
+
+    protect:
+      - "postgres:*"   # image tags, image repositories
+      - "my-db"        # and container names; * matches anything
 
 Keys:
   ↑/k, ↓/j      Move the cursor
@@ -38,16 +55,26 @@ Keys:
   a / n         Select all / none
   r             Refresh the lists
   d             Delete selected (asks for confirmation)
+  p             Show or hide protected items
+  /             Search by name (enter keeps it, esc clears it)
+  D / S / U     Show only dangling images / stopped containers / unused items
+  O             Show only items older than 7, 30, 90 days, then all again
+  esc           Clear filters and search
+  s             Sort by size, age (oldest first), name, or Docker's order
   ?             Show all keys
   q, ctrl+c     Quit
 `
 
 func main() {
-	if code, exit := parseFlags(os.Args[1:], os.Stdout, os.Stderr); exit {
+	opts, code, exit := parseFlags(os.Args[1:], os.Stdout, os.Stderr)
+	if exit {
 		os.Exit(code)
 	}
+	if opts.prune {
+		os.Exit(prune.Main(opts.pruneArgs, os.Stdin, os.Stdout, os.Stderr))
+	}
 
-	m, err := models.InitialModel()
+	m, err := models.InitialModel(opts.configPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, styles.ErrorMessage.Render(fmt.Sprintf("Could not start: %v", err)))
 		os.Exit(1)
@@ -60,9 +87,25 @@ func main() {
 	}
 }
 
-// parseFlags handles the command-line flags. It reports whether the program
-// should exit instead of starting the TUI, and with which exit code.
-func parseFlags(args []string, stdout, stderr io.Writer) (code int, exit bool) {
+// options are the settings taken from the command line.
+type options struct {
+	// configPath is the config file named by --config; empty for the
+	// default location.
+	configPath string
+	// prune is set when the first argument is the prune command, which
+	// then handles pruneArgs, the arguments after it.
+	prune     bool
+	pruneArgs []string
+}
+
+// parseFlags handles the command-line flags. It returns the options to start
+// the TUI with, or to run the prune command if the first argument names it,
+// or reports that the program should exit instead, and with which exit code.
+func parseFlags(args []string, stdout, stderr io.Writer) (opts options, code int, exit bool) {
+	if len(args) > 0 && args[0] == "prune" {
+		return options{prune: true, pruneArgs: args[1:]}, 0, false
+	}
+
 	fs := flag.NewFlagSet("docker-cleaner", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { _, _ = fmt.Fprint(fs.Output(), usageText) }
@@ -72,24 +115,25 @@ func parseFlags(args []string, stdout, stderr io.Writer) (code int, exit bool) {
 	fs.BoolVar(&showHelp, "help", false, "")
 	fs.BoolVar(&showVersion, "v", false, "")
 	fs.BoolVar(&showVersion, "version", false, "")
+	fs.StringVar(&opts.configPath, "config", "", "")
 
 	if err := fs.Parse(args); err != nil {
-		return 2, true
+		return options{}, 2, true
 	}
 
 	switch {
 	case showHelp:
 		_, _ = fmt.Fprint(stdout, usageText)
-		return 0, true
+		return options{}, 0, true
 	case showVersion:
 		_, _ = fmt.Fprintln(stdout, versionString())
-		return 0, true
+		return options{}, 0, true
 	case fs.NArg() > 0:
 		_, _ = fmt.Fprintf(stderr, "unexpected argument: %s\n", fs.Arg(0))
 		fs.Usage()
-		return 2, true
+		return options{}, 2, true
 	}
-	return 0, false
+	return opts, 0, false
 }
 
 // versionString describes the build, leaving out whatever is unknown, e.g.

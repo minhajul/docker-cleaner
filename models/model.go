@@ -4,12 +4,16 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbletea"
 	dockerClient "github.com/fsouza/go-dockerclient"
+	"github.com/minhajul/docker-cleaner/config"
 	"github.com/minhajul/docker-cleaner/docker"
+	"github.com/minhajul/docker-cleaner/filter"
 	"github.com/minhajul/docker-cleaner/styles"
 )
 
@@ -17,23 +21,32 @@ type ItemType int
 
 const (
 	ItemTypeHeader ItemType = iota
+	// The other values equal the matching docker.CleanupItemType.
 	ItemTypeImage
 	ItemTypeContainer
+	ItemTypeVolume
+	ItemTypeNetwork
+	ItemTypeBuildCache
 )
 
 type SelectableItem struct {
 	ID      string
 	Type    ItemType
 	Display string
-	// Size is the disk space deleting the item frees: an image's Size, or a
-	// container's writable layer (SizeRw).
+	// Size is the disk space deleting the item frees: an image's Size, a
+	// container's writable layer (SizeRw), a volume's size (0 if
+	// unknown) or the build cache's reclaimable space.
 	Size int64
 	// State is a container's state as reported by Docker (e.g. "running");
-	// empty for images and headers.
+	// empty for other items and headers.
 	State string
 	// Name is an image's first tag or a container's name ("<none>" if it
-	// has neither), for naming the item in messages.
+	// has neither), or a volume's or network's name, for naming the item
+	// in messages.
 	Name string
+	// Created is when the item was created; zero if unknown, as it is for
+	// networks and the build cache.
+	Created time.Time
 }
 
 type Model struct {
@@ -43,6 +56,13 @@ type Model struct {
 	dockerClient docker.API
 	images       []dockerClient.APIImages
 	containers   []dockerClient.APIContainers
+	volumes      []dockerClient.Volume
+	networks     []dockerClient.Network
+	// diskUsage adds volume sizes and the build cache to the lists and
+	// the totals to the summary under the title; diskUsageErr is why it
+	// could not be fetched, if it could not.
+	diskUsage    docker.DiskUsage
+	diskUsageErr error
 	errorMsg     string
 	cleaning     bool
 	refreshing   int // fetches still outstanding after the refresh key
@@ -51,6 +71,9 @@ type Model struct {
 	width        int // terminal size; 0 until the first tea.WindowSizeMsg
 	height       int
 	offset       int // index of the first list row on screen
+	// diskUsageFetched is false until the first disk usage fetch answers;
+	// until then there is no summary under the title.
+	diskUsageFetched bool
 	// confirm is the delete awaiting the user's answer; nil when the
 	// confirmation dialog is closed.
 	confirm     *pendingDelete
@@ -58,6 +81,29 @@ type Model struct {
 	// report describes the last cleanup; nil before the first one and
 	// while a cleanup runs.
 	report *cleanupReport
+	// protector decides which resources are protected from deletion.
+	protector docker.Protector
+	// protected maps the ID of every protected resource in the last fetch,
+	// listed or not, to the reason it is protected.
+	protected map[string]docker.Reason
+	// showProtected lists protected resources as read-only rows instead of
+	// hiding them.
+	showProtected bool
+	// filters narrow the lists (see filter.Options), and a non-empty query
+	// keeps only the rows whose name or text contains it, ignoring case.
+	// Selected items they hide stay selected but are not deleted (see
+	// reconcileSelection).
+	filters filter.Options
+	query   string
+	// search is the search input, which takes every key while searching
+	// is set; searchKeys are its keys.
+	search     textinput.Model
+	searching  bool
+	searchKeys searchKeyMap
+	// now is the clock item ages are measured from; nil means time.Now.
+	now func() time.Time
+	// sortOrder orders the rows within each section.
+	sortOrder filter.SortOrder
 }
 
 // cleanupReport is what the model shows about a finished cleanup. It is
@@ -78,16 +124,42 @@ type pendingDelete struct {
 	items      []docker.CleanupItem
 	images     int
 	containers int
-	size       int64 // bytes freed: images' Size plus containers' SizeRw
-	running    int   // selected containers that are running
+	volumes    int
+	networks   int
+	buildCache bool
+	size       int64 // bytes freed: the selected rows' Size (see SelectableItem)
+	// Selected containers Docker won't remove without force, by state.
+	running    int
+	paused     int
+	restarting int
+	// hidden is the number of selected items the filters or the search
+	// hide; they are not deleted.
+	hidden int
+}
+
+// active is the number of selected containers Docker won't remove without
+// force: running, paused or restarting ones.
+func (p *pendingDelete) active() int {
+	return p.running + p.paused + p.restarting
 }
 
 // InitialModel creates a new Model connected to the Docker daemon, found
 // through DOCKER_HOST or the current Docker context (see
-// docker.ResolveEndpoint). If Docker cannot be reached, an error is returned
-// (and a diagnostic naming the endpoint is written to stderr). The caller is
-// responsible for exiting the program on error.
-func InitialModel() (Model, error) {
+// docker.ResolveEndpoint), protecting the resources listed in the config
+// file at configPath (the default location if empty; see config.Load). If
+// the config file is invalid or Docker cannot be reached, an error is
+// returned (and for Docker a diagnostic naming the endpoint is written to
+// stderr). The caller is responsible for exiting the program on error.
+func InitialModel(configPath string) (Model, error) {
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return Model{}, err
+	}
+	protector, err := docker.NewProtector(cfg.Protect)
+	if err != nil {
+		return Model{}, err
+	}
+
 	client, endpoint, err := docker.NewClient()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Unable to connect to Docker daemon:", err)
@@ -99,7 +171,9 @@ func InitialModel() (Model, error) {
 		return Model{}, err
 	}
 
-	return newModel(client), nil
+	m := newModel(client)
+	m.protector = protector
+	return m, nil
 }
 
 // newModel returns a ready-to-use Model backed by cli. Tests pass a fake.
@@ -110,6 +184,9 @@ func newModel(cli docker.API) Model {
 		keys:         defaultKeyMap(),
 		help:         help.New(),
 		confirmKeys:  defaultConfirmKeyMap(),
+		search:       newSearchInput(),
+		searchKeys:   defaultSearchKeyMap(),
+		now:          time.Now,
 	}
 }
 
@@ -117,10 +194,22 @@ func (m Model) Init() tea.Cmd {
 	return m.refreshCmd()
 }
 
-// refreshCmd returns a tea.Cmd that fetches both images and containers
-// using the shared Docker client.
+// refreshCmd returns a tea.Cmd that runs every fetch (see fetchCmds) using
+// the shared Docker client.
 func (m Model) refreshCmd() tea.Cmd {
-	return tea.Batch(docker.FetchDockerImages(m.dockerClient), docker.FetchDockerContainers(m.dockerClient))
+	return tea.Batch(m.fetchCmds()...)
+}
+
+// fetchCmds returns the fetches that refresh the lists. Each answers with
+// exactly one message, which Update counts against m.refreshing.
+func (m Model) fetchCmds() []tea.Cmd {
+	return []tea.Cmd{
+		docker.FetchDockerImages(m.dockerClient),
+		docker.FetchDockerContainers(m.dockerClient),
+		docker.FetchVolumes(m.dockerClient),
+		docker.FetchNetworks(m.dockerClient),
+		docker.FetchDiskUsage(m.dockerClient),
+	}
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -128,6 +217,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.confirm != nil {
 			return m.updateConfirm(msg)
+		}
+		if m.searching {
+			return m.updateSearch(msg)
 		}
 		switch {
 		case key.Matches(msg, m.keys.Quit):
@@ -160,7 +252,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !m.cleaning {
 				m.errorMsg = ""
 				m.report = nil
-				m.refreshing = 2 // images and containers
+				m.refreshing = len(m.fetchCmds())
 				return m, m.refreshCmd()
 			}
 
@@ -180,13 +272,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Enabled only while m.report.retry is non-empty.
 			return m.startCleanup(m.report.retry)
 
+		case key.Matches(msg, m.keys.ShowProtected):
+			m.toggleShowProtected()
+
 		case key.Matches(msg, m.keys.Delete):
 			// Open the confirmation dialog; nothing is deleted until the
-			// user answers it (see updateConfirm).
-			if len(m.selected) > 0 {
-				m.confirm = m.newPendingDelete()
-				m.confirmKeys.Force.SetEnabled(m.confirm.running > 0)
+			// user answers it (see updateConfirm). Selected items hidden
+			// by the filters are not deleted, so there may be nothing to
+			// ask about.
+			if p := m.newPendingDelete(); len(p.items) > 0 {
+				m.confirm = p
+				m.confirmKeys.Force.SetEnabled(m.confirm.active() > 0)
 			}
+
+		case key.Matches(msg, m.keys.Search):
+			return m, m.startSearch()
+
+		case key.Matches(msg, m.keys.ClearFilters):
+			m.clearFilters()
+
+		case key.Matches(msg, m.keys.FilterDangling):
+			m.setFilters(func(o *filter.Options) { o.Dangling = !o.Dangling })
+
+		case key.Matches(msg, m.keys.FilterStopped):
+			m.setFilters(func(o *filter.Options) { o.Stopped = !o.Stopped })
+
+		case key.Matches(msg, m.keys.FilterUnused):
+			m.setFilters(func(o *filter.Options) { o.Unused = !o.Unused })
+
+		case key.Matches(msg, m.keys.FilterOlderThan):
+			m.setFilters(func(o *filter.Options) { o.OlderThan = nextOlderThan(o.OlderThan) })
+
+		case key.Matches(msg, m.keys.Sort):
+			m.relist(func() { m.sortOrder = m.sortOrder.Next() })
 		}
 		m.scrollToCursor()
 
@@ -204,6 +322,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case docker.ContainersFetchedMsg:
 		m.containers = msg.Containers
+		m.refreshing = max(0, m.refreshing-1)
+		m.updateItems()
+		return m, nil
+
+	case docker.VolumesFetchedMsg:
+		m.volumes = msg.Volumes
+		m.refreshing = max(0, m.refreshing-1)
+		m.updateItems()
+		return m, nil
+
+	case docker.NetworksFetchedMsg:
+		m.networks = msg.Networks
+		m.refreshing = max(0, m.refreshing-1)
+		m.updateItems()
+		return m, nil
+
+	case docker.DiskUsageFetchedMsg:
+		// On error keep nothing from an earlier fetch: stale sizes would
+		// mislead more than missing ones.
+		m.diskUsage, m.diskUsageErr = msg.Usage, msg.Err
+		m.diskUsageFetched = true
 		m.refreshing = max(0, m.refreshing-1)
 		m.updateItems()
 		return m, nil
@@ -226,6 +365,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cleaning = false
 		m.refreshing = 0
 		return m, nil
+
+	default:
+		// The search input's own messages, such as the clipboard text
+		// ctrl+v reads.
+		if m.searching {
+			var cmd tea.Cmd
+			m.search, cmd = m.search.Update(msg)
+			m.setQuery(m.search.Value())
+			return m, cmd
+		}
 	}
 
 	return m, nil
@@ -233,8 +382,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // updateConfirm handles a key press while the confirmation dialog is open.
 // The dialog closes on any key: y deletes, f (offered only when a selected
-// container is running) deletes with containers force-removed, ctrl+c quits,
-// and everything else cancels.
+// container is running, paused or restarting) deletes with containers
+// force-removed, q or ctrl+c
+// quits, and everything else cancels.
 func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	pending := m.confirm
 	m.confirm = nil
@@ -287,11 +437,7 @@ func (m *Model) newReport(res docker.CleanupResultMsg) *cleanupReport {
 
 	r := &cleanupReport{summary: res.Summary(), retry: res.ForceRetry()}
 	for _, f := range res.Failed {
-		label := docker.ShortID(f.Item.ID)
-		if name := names[f.Item.ID]; name != "" {
-			label += " " + name
-		}
-		r.failures = append(r.failures, fmt.Sprintf("%s: %s", label, f.Reason))
+		r.failures = append(r.failures, fmt.Sprintf("%s: %s", failureLabel(f.Item, names[f.Item.ID]), f.Reason))
 	}
 	return r
 }
@@ -306,8 +452,16 @@ func (r *cleanupReport) retryHint() string {
 }
 
 // newPendingDelete snapshots the current selection for the confirmation
-// dialog, totalling it from the per-row Size and State set by updateItems.
+// dialog.
 func (m *Model) newPendingDelete() *pendingDelete {
+	p := m.selectionSummary()
+	return &p
+}
+
+// selectionSummary totals the current selection from the per-row Size and
+// State set by updateItems. Both the confirmation dialog and the footer's
+// selected counter use it, so they always agree.
+func (m *Model) selectionSummary() pendingDelete {
 	rows := make(map[string]SelectableItem, len(m.items))
 	for _, item := range m.items {
 		if item.Type != ItemTypeHeader {
@@ -315,17 +469,28 @@ func (m *Model) newPendingDelete() *pendingDelete {
 		}
 	}
 
-	p := &pendingDelete{items: m.getSelectionForCleanup()}
+	p := pendingDelete{items: m.getSelectionForCleanup(), hidden: m.hiddenSelected()}
 	for _, it := range p.items {
 		row := rows[it.ID]
 		p.size += row.Size
 		switch row.Type {
 		case ItemTypeImage:
 			p.images++
+		case ItemTypeVolume:
+			p.volumes++
+		case ItemTypeNetwork:
+			p.networks++
+		case ItemTypeBuildCache:
+			p.buildCache = true
 		case ItemTypeContainer:
 			p.containers++
-			if row.State == "running" {
+			switch row.State {
+			case "running":
 				p.running++
+			case "paused":
+				p.paused++
+			case "restarting":
+				p.restarting++
 			}
 		}
 	}
@@ -333,7 +498,8 @@ func (m *Model) newPendingDelete() *pendingDelete {
 }
 
 // prompt is the dialog's question, e.g. "Delete 3 images, 2 containers
-// (1.4 GB)? y/N".
+// (1.4 GB)? y/N" or "Delete 2 images, 1 volume, build cache (3.4 GB)? y/N".
+// Only the types selected are named.
 func (p *pendingDelete) prompt() string {
 	var parts []string
 	if p.images > 0 {
@@ -342,20 +508,52 @@ func (p *pendingDelete) prompt() string {
 	if p.containers > 0 {
 		parts = append(parts, plural(p.containers, "container"))
 	}
+	if p.volumes > 0 {
+		parts = append(parts, plural(p.volumes, "volume"))
+	}
+	if p.networks > 0 {
+		parts = append(parts, plural(p.networks, "network"))
+	}
+	if p.buildCache {
+		parts = append(parts, "build cache")
+	}
 	return fmt.Sprintf("Delete %s (%s)? y/N", strings.Join(parts, ", "), docker.HumanSize(p.size))
 }
 
-// warning explains what happens to running containers, or returns "" when
-// none are selected.
+// warning explains what happens to running, paused and restarting
+// containers, or returns "" when none are selected. It names their state:
+// "⚠ 2 containers are paused and won't be removed with y; press f to
+// force-remove them", or with mixed states "⚠ 3 containers (2 running,
+// 1 paused) won't be removed with y; …".
 func (p *pendingDelete) warning() string {
-	switch p.running {
-	case 0:
+	n := p.active()
+	if n == 0 {
 		return ""
-	case 1:
-		return "⚠ 1 container is running and won't be removed with y; press f to force-remove it"
-	default:
-		return fmt.Sprintf("⚠ %d containers are running and won't be removed with y; press f to force-remove them", p.running)
 	}
+	var states, counts []string
+	for _, s := range []struct {
+		count int
+		state string
+	}{{p.running, "running"}, {p.paused, "paused"}, {p.restarting, "restarting"}} {
+		if s.count > 0 {
+			states = append(states, s.state)
+			counts = append(counts, fmt.Sprintf("%d %s", s.count, s.state))
+		}
+	}
+
+	what := fmt.Sprintf("%d containers (%s)", n, strings.Join(counts, ", "))
+	if len(states) == 1 {
+		verb := "are"
+		if n == 1 {
+			verb = "is"
+		}
+		what = fmt.Sprintf("%s %s %s and", plural(n, "container"), verb, states[0])
+	}
+	it := "them"
+	if n == 1 {
+		it = "it"
+	}
+	return fmt.Sprintf("⚠ %s won't be removed with y; press f to force-remove %s", what, it)
 }
 
 // plural formats a count with its noun, adding an "s" unless n is 1.
@@ -379,9 +577,23 @@ func (m Model) View() string {
 	return s.String()
 }
 
-// titleView renders the title block above the list.
+// titleView renders the title block above the list: the title and, once the
+// disk usage has been fetched, its summary (see summaryLines).
 func (m Model) titleView() string {
-	return styles.Title.Render("🐳 Docker Cleaner")
+	const title = "🐳 Docker Cleaner"
+	lines := m.summaryLines()
+	if len(lines) == 0 {
+		return styles.Title.Render(title)
+	}
+	var s strings.Builder
+	s.WriteString(styles.Title.MarginBottom(0).Render(title))
+	for _, line := range lines {
+		s.WriteString("\n")
+		s.WriteString(styles.Summary.Render(line))
+	}
+	// The title's bottom margin, moved below the summary.
+	s.WriteString(strings.Repeat("\n", styles.Title.GetMarginBottom()))
+	return s.String()
 }
 
 // footerView renders everything below the list: the help footer and any
@@ -389,15 +601,43 @@ func (m Model) titleView() string {
 func (m Model) footerView() string {
 	var s strings.Builder
 
-	if m.confirm != nil {
+	if m.searching {
+		s.WriteString(m.search.View())
+		s.WriteString("\n")
+	}
+	if bar := m.filterBar(); bar != "" {
+		s.WriteString(styles.FilterBar.Render(bar))
+		s.WriteString("\n")
+	}
+
+	// The dialog states the same count and size itself.
+	if c := m.selectedCounter(); c != "" && m.confirm == nil {
+		s.WriteString(styles.SelectedCount.Render(c))
+		s.WriteString("\n")
+	}
+
+	if hint := m.protectedHint(); hint != "" {
+		// Directly under the list, above the help's top margin.
+		s.WriteString(styles.ProtectedHint.Render(hint))
+		s.WriteString("\n")
+	}
+
+	switch {
+	case m.confirm != nil:
 		s.WriteString("\n")
 		s.WriteString(styles.Confirm.Render(m.confirm.prompt()))
 		if w := m.confirm.warning(); w != "" {
 			s.WriteString("\n")
 			s.WriteString(styles.Warning.Render(w))
 		}
+		if n := m.confirm.hidden; n > 0 {
+			s.WriteString("\n")
+			s.WriteString(styles.FilterBar.Render(plural(n, "selected item") + " hidden by filters will be kept"))
+		}
 		s.WriteString(styles.Instructions.Render(m.help.View(m.confirmKeys)))
-	} else {
+	case m.searching:
+		s.WriteString(styles.Instructions.Render(m.help.View(m.searchKeys)))
+	default:
 		s.WriteString(styles.Instructions.Render(m.help.View(m.keys)))
 	}
 
@@ -437,21 +677,26 @@ func (m Model) footerView() string {
 	return s.String()
 }
 
-// getSelectionForCleanup returns the selected items, containers first so an
-// image is never removed before a container that uses it, and otherwise in
-// list order. Iterating m.items rather than the selection map keeps the order
-// deterministic.
+// getSelectionForCleanup returns the selected items by type in
+// docker.RemovalOrder, containers first so an image, volume or network is
+// never removed before a container that uses it, and otherwise in list order.
+// Iterating m.items rather than the selection map keeps the order
+// deterministic. Protected items are never included, even if selected.
 func (m *Model) getSelectionForCleanup() []docker.CleanupItem {
 	var items []docker.CleanupItem
-	for _, typ := range []ItemType{ItemTypeContainer, ItemTypeImage} {
+	for _, t := range docker.RemovalOrder() {
+		typ := ItemType(t)
 		for _, item := range m.items {
-			if item.Type != typ {
+			if item.Type != typ || m.isProtected(item) {
 				continue
 			}
 			if _, ok := m.selected[item.ID]; ok {
 				items = append(items, docker.CleanupItem{
 					ID:   item.ID,
 					Type: docker.CleanupItemType(item.Type),
+					// Prune with All only when a plain prune would
+					// leave part of the reclaimable space shown.
+					Force: typ == ItemTypeBuildCache && m.diskUsage.BuildCache.NeedsAll,
 				})
 			}
 		}
@@ -488,11 +733,12 @@ func (m *Model) sectionItems(header int) []SelectableItem {
 
 // allSelected reports whether every selectable row in items is selected. It
 // is false for a list with no selectable rows, so toggling an empty section
-// tries to select (a no-op) rather than deselect.
+// tries to select (a no-op) rather than deselect. Protected rows are not
+// selectable.
 func (m *Model) allSelected(items []SelectableItem) bool {
 	found := false
 	for _, item := range items {
-		if item.Type == ItemTypeHeader {
+		if item.Type == ItemTypeHeader || m.isProtected(item) {
 			continue
 		}
 		if _, ok := m.selected[item.ID]; !ok {
@@ -504,13 +750,13 @@ func (m *Model) allSelected(items []SelectableItem) bool {
 }
 
 // setSelected selects (on) or deselects every non-header row in items.
-// Header rows are skipped so they never enter the selection.
+// Header and protected rows are skipped so they never enter the selection.
 func (m *Model) setSelected(items []SelectableItem, on bool) {
 	if m.selected == nil {
 		m.selected = make(map[string]struct{})
 	}
 	for _, item := range items {
-		if item.Type == ItemTypeHeader {
+		if item.Type == ItemTypeHeader || m.isProtected(item) {
 			continue
 		}
 		if on {
@@ -522,17 +768,16 @@ func (m *Model) setSelected(items []SelectableItem, on bool) {
 }
 
 // reconcileSelection keeps the selection and cursor consistent with a freshly
-// rebuilt m.items: selected IDs that are no longer listed are dropped, and the
-// cursor is clamped into range (0 when the list is empty).
+// rebuilt m.items: selected IDs whose resource is gone from Docker, or is now
+// protected, are dropped, and the cursor is clamped into range (0 when the
+// list is empty). Selected items that are only hidden by the filters or the
+// search stay selected, so clearing them brings the selection back; until
+// then they are left out of a delete (see getSelectionForCleanup) and
+// counted in the filter bar (see hiddenSelected).
 func (m *Model) reconcileSelection() {
-	listed := make(map[string]struct{}, len(m.items))
-	for _, item := range m.items {
-		if item.Type != ItemTypeHeader {
-			listed[item.ID] = struct{}{}
-		}
-	}
+	present := m.fetchedIDs()
 	for id := range m.selected {
-		if _, ok := listed[id]; !ok {
+		if _, ok := present[id]; !ok || m.protected[id] != docker.NotProtected {
 			delete(m.selected, id)
 		}
 	}
@@ -543,8 +788,10 @@ func (m *Model) reconcileSelection() {
 func (m *Model) updateItems() {
 	m.items = []SelectableItem{}
 
-	images := docker.FilterUserImages(m.images)
-	containers := docker.FilterUserContainers(m.containers)
+	m.protected = make(map[string]docker.Reason)
+	now := m.clock()
+	images := m.filters.Images(m.listedImages(), m.usage(), now)
+	containers := m.filters.Containers(m.listedContainers(), now)
 
 	// Add images section
 	m.items = append(m.items, SelectableItem{
@@ -552,19 +799,24 @@ func (m *Model) updateItems() {
 		Display: "📦 Docker Images",
 	})
 
+	var rows []SelectableItem
 	for _, img := range images {
 		name := "<none>"
 		if len(img.RepoTags) > 0 && img.RepoTags[0] != "<none>:<none>" {
 			name = img.RepoTags[0]
 		}
-		m.items = append(m.items, SelectableItem{
-			ID:      img.ID,
-			Type:    ItemTypeImage,
-			Display: fmt.Sprintf("%s (ID: %s, Size: %s)", name, docker.ShortID(img.ID), docker.HumanSize(img.Size)),
+		created := filter.ImageCreated(img)
+		rows = append(rows, SelectableItem{
+			ID:   img.ID,
+			Type: ItemTypeImage,
+			Display: fmt.Sprintf("%s (ID: %s, Size: %s%s)",
+				name, docker.ShortID(img.ID), docker.HumanSize(img.Size), ageSuffix(created, now)),
 			Size:    img.Size,
 			Name:    name,
+			Created: created,
 		})
 	}
+	m.items = append(m.items, m.shown(rows)...)
 
 	// Add containers section
 	m.items = append(m.items, SelectableItem{
@@ -572,14 +824,15 @@ func (m *Model) updateItems() {
 		Display: "🏃 Docker Containers",
 	})
 
+	rows = nil
 	for _, container := range containers {
 		name := "<none>"
 		if len(container.Names) > 0 {
 			// Remove leading slash from container name
 			name = strings.TrimPrefix(container.Names[0], "/")
 		}
-		// Show the state so running containers, which removal will refuse,
-		// stand out.
+		// Show the state so running and paused containers, which removal
+		// will refuse, stand out.
 		state := container.State
 		if state == "" {
 			state = "unknown"
@@ -588,15 +841,23 @@ func (m *Model) updateItems() {
 		// which is all a delete frees; SizeRootFs (virtual) also counts the
 		// image layers, which stay on disk until the image is removed.
 		size := fmt.Sprintf("%s (virtual %s)", docker.HumanSize(container.SizeRw), docker.HumanSize(container.SizeRootFs))
-		m.items = append(m.items, SelectableItem{
-			ID:      container.ID,
-			Type:    ItemTypeContainer,
-			Display: fmt.Sprintf("%s (ID: %s, Image: %s, State: %s, Size: %s)", name, docker.ShortID(container.ID), container.Image, state, size),
+		created := filter.ContainerCreated(container)
+		rows = append(rows, SelectableItem{
+			ID:   container.ID,
+			Type: ItemTypeContainer,
+			Display: fmt.Sprintf("%s (ID: %s, Image: %s, State: %s, Size: %s%s)",
+				name, docker.ShortID(container.ID), container.Image, state, size, ageSuffix(created, now)),
 			Size:    container.SizeRw,
 			State:   container.State,
 			Name:    name,
+			Created: created,
 		})
 	}
+	m.items = append(m.items, m.shown(rows)...)
+
+	m.items = append(m.items, m.volumeRows()...)
+	m.items = append(m.items, m.networkRows()...)
+	m.items = append(m.items, m.buildCacheRows()...)
 
 	m.reconcileSelection()
 	m.scrollToCursor()

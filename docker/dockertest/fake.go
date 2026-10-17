@@ -2,9 +2,13 @@
 package dockertest
 
 import (
+	"context"
 	"fmt"
+	"slices"
 
 	client "github.com/fsouza/go-dockerclient"
+	"github.com/moby/moby/api/types/volume"
+	mobyclient "github.com/moby/moby/client"
 )
 
 // Fake is an in-memory stand-in for the Docker daemon. Set the exported
@@ -13,18 +17,33 @@ import (
 type Fake struct {
 	Images     []client.APIImages
 	Containers []client.APIContainers
+	Volumes    []client.Volume
+	Networks   []client.Network
+	// Usage is what DiskUsage returns. Removing a volume drops it from
+	// Usage.Volumes.Items, and pruning the build cache empties
+	// Usage.BuildCache.
+	Usage mobyclient.DiskUsageResult
 
 	// PingErr is returned by Ping.
 	PingErr error
-	// ListErr is returned by ListImages and ListContainers.
+	// ListErr is returned by ListImages, ListContainers, ListVolumes and
+	// ListNetworks.
 	ListErr error
-	// RemoveErrs maps an image or container ID to the error its removal
-	// should return.
+	// DiskUsageErr is returned by DiskUsage.
+	DiskUsageErr error
+	// PruneErr is returned by BuildCachePrune.
+	PruneErr error
+	// RemoveErrs maps an image or container ID, a volume name or a network
+	// ID to the error its removal should return.
 	RemoveErrs map[string]error
 
-	// Removed records successful removals in call order, as "image:<id>"
-	// or "container:<id>".
+	// Removed records successful removals in call order, as "image:<id>",
+	// "container:<id>", "volume:<name>", "network:<id>" or "buildcache".
 	Removed []string
+	// DiskUsageOpts is the options passed to the last DiskUsage call.
+	DiskUsageOpts mobyclient.DiskUsageOptions
+	// PruneOpts records the options of every BuildCachePrune call.
+	PruneOpts []mobyclient.BuildCachePruneOptions
 	// ListContainersOpts is the options passed to the last ListContainers call.
 	ListContainersOpts client.ListContainersOptions
 	// RemoveContainerOpts records the options of every RemoveContainer call.
@@ -86,4 +105,74 @@ func (f *Fake) RemoveContainer(opts client.RemoveContainerOptions) error {
 		}
 	}
 	return fmt.Errorf("no such container: %s", opts.ID)
+}
+
+// ListVolumes returns a copy of Volumes, as a daemon would return a fresh
+// list, so later removals do not change the slice the caller holds. So does
+// ListNetworks.
+func (f *Fake) ListVolumes(_ client.ListVolumesOptions) ([]client.Volume, error) {
+	if f.ListErr != nil {
+		return nil, f.ListErr
+	}
+	return slices.Clone(f.Volumes), nil
+}
+
+// RemoveVolumeWithOptions removes the volume opts.Name. It ignores
+// opts.Force: an entry in RemoveErrs fails the call either way.
+func (f *Fake) RemoveVolumeWithOptions(opts client.RemoveVolumeOptions) error {
+	if err := f.RemoveErrs[opts.Name]; err != nil {
+		return err
+	}
+	i := slices.IndexFunc(f.Volumes, func(v client.Volume) bool { return v.Name == opts.Name })
+	if i < 0 {
+		return client.ErrNoSuchVolume
+	}
+	f.Volumes = slices.Delete(f.Volumes, i, i+1)
+	f.Usage.Volumes.Items = slices.DeleteFunc(f.Usage.Volumes.Items, func(v volume.Volume) bool { return v.Name == opts.Name })
+	f.Removed = append(f.Removed, "volume:"+opts.Name)
+	return nil
+}
+
+func (f *Fake) ListNetworks() ([]client.Network, error) {
+	if f.ListErr != nil {
+		return nil, f.ListErr
+	}
+	return slices.Clone(f.Networks), nil
+}
+
+func (f *Fake) RemoveNetwork(id string) error {
+	if err := f.RemoveErrs[id]; err != nil {
+		return err
+	}
+	i := slices.IndexFunc(f.Networks, func(n client.Network) bool { return n.ID == id })
+	if i < 0 {
+		return &client.NoSuchNetwork{ID: id}
+	}
+	f.Networks = slices.Delete(f.Networks, i, i+1)
+	f.Removed = append(f.Removed, "network:"+id)
+	return nil
+}
+
+func (f *Fake) DiskUsage(_ context.Context, opts mobyclient.DiskUsageOptions) (mobyclient.DiskUsageResult, error) {
+	f.DiskUsageOpts = opts
+	if f.DiskUsageErr != nil {
+		return mobyclient.DiskUsageResult{}, f.DiskUsageErr
+	}
+	return f.Usage, nil
+}
+
+// BuildCachePrune reports Usage.BuildCache.Reclaimable as reclaimed, whatever
+// opts says, and then empties Usage.BuildCache.
+func (f *Fake) BuildCachePrune(_ context.Context, opts mobyclient.BuildCachePruneOptions) (mobyclient.BuildCachePruneResult, error) {
+	f.PruneOpts = append(f.PruneOpts, opts)
+	if f.PruneErr != nil {
+		return mobyclient.BuildCachePruneResult{}, f.PruneErr
+	}
+	var result mobyclient.BuildCachePruneResult
+	if r := f.Usage.BuildCache.Reclaimable; r > 0 {
+		result.Report.SpaceReclaimed = uint64(r)
+	}
+	f.Usage.BuildCache = mobyclient.BuildCacheDiskUsage{}
+	f.Removed = append(f.Removed, "buildcache")
+	return result, nil
 }

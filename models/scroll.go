@@ -29,6 +29,12 @@ func (m Model) rowView(i int) string {
 	item := m.items[i]
 	var line strings.Builder
 
+	if item.Type == ItemTypeHeader {
+		// Write the header's top margin as blank lines of its own, so the
+		// cursor lands beside the header text rather than on the margin.
+		line.WriteString(strings.Repeat("\n", styles.Header.GetMarginTop()))
+	}
+
 	// Cursor indicator
 	if m.cursor == i {
 		line.WriteString(styles.Cursor.Render("▶ "))
@@ -39,7 +45,12 @@ func (m Model) rowView(i int) string {
 	// Handle different item types
 	if item.Type == ItemTypeHeader {
 		// Headers don't have checkboxes
-		line.WriteString(styles.Header.Render(item.Display))
+		line.WriteString(styles.Header.MarginTop(0).Render(item.Display))
+		return line.String()
+	}
+
+	if m.isProtected(item) {
+		line.WriteString(m.protectedRowView(item))
 		return line.String()
 	}
 

@@ -270,12 +270,12 @@ All 29 steps in the order to implement them. Size is a rough estimate: S is unde
 | 18 | Refresh key | 3 · UX | S | 5 | Done |
 | 19 | Help screen | 3 · UX | S | — | Done |
 | 20 | Readable per-item errors | 3 · UX | M | 16 | Done |
-| 21 | Volumes, networks, build cache | 4 · Features | L | 15 | Not started |
-| 22 | Filters and search | 4 · Features | M | 15 | Not started |
-| 23 | Sorting and item age | 4 · Features | S | — | Not started |
-| 24 | Reclaimable space summary | 4 · Features | M | 4, 21 | Not started |
-| 25 | Non-interactive `prune` mode | 4 · Features | L | 10, 22 | Not started |
-| 26 | Configurable protect-list | 4 · Features | M | — | Not started |
+| 21 | Volumes, networks, build cache | 4 · Features | L | 15 | Done |
+| 22 | Filters and search | 4 · Features | M | 15 | Done |
+| 23 | Sorting and item age | 4 · Features | S | — | Done |
+| 24 | Reclaimable space summary | 4 · Features | M | 4, 21 | Done |
+| 25 | Non-interactive `prune` mode | 4 · Features | L | 10, 22 | Done |
+| 26 | Configurable protect-list | 4 · Features | M | — | Done |
 | 27 | Clean up tracked and ignored files | 5 · Hygiene | S | — | Done |
 | 28 | Issue and PR templates | 5 · Hygiene | S | 10 | Done |
 | 29 | Changelog via GoReleaser | 5 · Hygiene | S | 13 | Done |
