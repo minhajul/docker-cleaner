@@ -7,6 +7,8 @@ import (
 
 	"docker-cleaner/docker"
 	"docker-cleaner/styles"
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbletea"
 	dockerClient "github.com/fsouza/go-dockerclient"
 )
@@ -35,6 +37,8 @@ type Model struct {
 	errorMsg     string
 	successMsg   string
 	cleaning     bool
+	keys         keyMap
+	help         help.Model
 }
 
 // InitialModel creates a new Model connected to the Docker daemon. If Docker
@@ -52,10 +56,17 @@ func InitialModel() (Model, error) {
 		return Model{}, err
 	}
 
+	return newModel(client), nil
+}
+
+// newModel returns a ready-to-use Model backed by cli. Tests pass a fake.
+func newModel(cli docker.API) Model {
 	return Model{
 		selected:     make(map[string]struct{}),
-		dockerClient: client,
-	}, nil
+		dockerClient: cli,
+		keys:         defaultKeyMap(),
+		help:         help.New(),
+	}
 }
 
 func (m Model) Init() tea.Cmd {
@@ -71,21 +82,24 @@ func (m Model) refreshCmd() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
+		switch {
+		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
 
-		case "up", "k":
+		case key.Matches(msg, m.keys.Help):
+			m.help.ShowAll = !m.help.ShowAll
+
+		case key.Matches(msg, m.keys.Up):
 			if m.cursor > 0 {
 				m.cursor--
 			}
 
-		case "down", "j":
+		case key.Matches(msg, m.keys.Down):
 			if m.cursor < len(m.items)-1 {
 				m.cursor++
 			}
 
-		case "enter", " ":
+		case key.Matches(msg, m.keys.Toggle):
 			// Only allow selection of non-header items
 			if m.cursor < len(m.items) && m.items[m.cursor].Type != ItemTypeHeader {
 				id := m.items[m.cursor].ID
@@ -98,7 +112,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.selected[id] = struct{}{}
 				}
 			}
-		case "d": // Delete selected items
+		case key.Matches(msg, m.keys.Delete):
 			if len(m.selected) > 0 {
 				// Clear previous messages when starting new cleanup
 				m.errorMsg = ""
@@ -184,8 +198,7 @@ func (m Model) View() string {
 		s.WriteString("\n")
 	}
 
-	// Instructions
-	s.WriteString(styles.Instructions.Render("\n↑/↓ or j/k: navigate • space: select/deselect • d: delete selected • q: quit"))
+	s.WriteString(styles.Instructions.Render(m.help.View(m.keys)))
 
 	// Status messages
 	if m.cleaning {
