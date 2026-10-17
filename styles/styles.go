@@ -10,6 +10,10 @@ var (
 		Foreground(lipgloss.Color("#7C3AED")).
 		MarginBottom(1)
 
+	// Summary is the style for the disk usage summary under the title.
+	Summary = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#9CA3AF"))
+
 	// Header is the style for section headers.
 	Header = lipgloss.NewStyle().
 		Bold(true).
@@ -38,6 +42,12 @@ var (
 	SelectedItem = lipgloss.NewStyle().
 			PaddingLeft(1).
 			Foreground(lipgloss.Color("#10B981"))
+
+	// SelectedCount is the style for the footer line counting the selected
+	// items and the space deleting them frees.
+	SelectedCount = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#10B981")).
+			Bold(true)
 
 	// ErrorMessage is the style for error messages.
 	ErrorMessage = lipgloss.NewStyle().

@@ -52,8 +52,9 @@ type Model struct {
 	containers   []dockerClient.APIContainers
 	volumes      []dockerClient.Volume
 	networks     []dockerClient.Network
-	// diskUsage adds volume sizes and the build cache to the lists;
-	// diskUsageErr is why it could not be fetched, if it could not.
+	// diskUsage adds volume sizes and the build cache to the lists and
+	// the totals to the summary under the title; diskUsageErr is why it
+	// could not be fetched, if it could not.
 	diskUsage    docker.DiskUsage
 	diskUsageErr error
 	errorMsg     string
@@ -64,6 +65,9 @@ type Model struct {
 	width        int // terminal size; 0 until the first tea.WindowSizeMsg
 	height       int
 	offset       int // index of the first list row on screen
+	// diskUsageFetched is false until the first disk usage fetch answers;
+	// until then there is no summary under the title.
+	diskUsageFetched bool
 	// confirm is the delete awaiting the user's answer; nil when the
 	// confirmation dialog is closed.
 	confirm     *pendingDelete
@@ -285,6 +289,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// On error keep nothing from an earlier fetch: stale sizes would
 		// mislead more than missing ones.
 		m.diskUsage, m.diskUsageErr = msg.Usage, msg.Err
+		m.diskUsageFetched = true
 		m.refreshing = max(0, m.refreshing-1)
 		m.updateItems()
 		return m, nil
@@ -384,8 +389,16 @@ func (r *cleanupReport) retryHint() string {
 }
 
 // newPendingDelete snapshots the current selection for the confirmation
-// dialog, totalling it from the per-row Size and State set by updateItems.
+// dialog.
 func (m *Model) newPendingDelete() *pendingDelete {
+	p := m.selectionSummary()
+	return &p
+}
+
+// selectionSummary totals the current selection from the per-row Size and
+// State set by updateItems. Both the confirmation dialog and the footer's
+// selected counter use it, so they always agree.
+func (m *Model) selectionSummary() pendingDelete {
 	rows := make(map[string]SelectableItem, len(m.items))
 	for _, item := range m.items {
 		if item.Type != ItemTypeHeader {
@@ -393,7 +406,7 @@ func (m *Model) newPendingDelete() *pendingDelete {
 		}
 	}
 
-	p := &pendingDelete{items: m.getSelectionForCleanup()}
+	p := pendingDelete{items: m.getSelectionForCleanup()}
 	for _, it := range p.items {
 		row := rows[it.ID]
 		p.size += row.Size
@@ -501,15 +514,35 @@ func (m Model) View() string {
 	return s.String()
 }
 
-// titleView renders the title block above the list.
+// titleView renders the title block above the list: the title and, once the
+// disk usage has been fetched, its summary (see summaryLines).
 func (m Model) titleView() string {
-	return styles.Title.Render("🐳 Docker Cleaner")
+	const title = "🐳 Docker Cleaner"
+	lines := m.summaryLines()
+	if len(lines) == 0 {
+		return styles.Title.Render(title)
+	}
+	var s strings.Builder
+	s.WriteString(styles.Title.MarginBottom(0).Render(title))
+	for _, line := range lines {
+		s.WriteString("\n")
+		s.WriteString(styles.Summary.Render(line))
+	}
+	// The title's bottom margin, moved below the summary.
+	s.WriteString(strings.Repeat("\n", styles.Title.GetMarginBottom()))
+	return s.String()
 }
 
 // footerView renders everything below the list: the help footer and any
 // status messages.
 func (m Model) footerView() string {
 	var s strings.Builder
+
+	// The dialog states the same count and size itself.
+	if c := m.selectedCounter(); c != "" && m.confirm == nil {
+		s.WriteString(styles.SelectedCount.Render(c))
+		s.WriteString("\n")
+	}
 
 	if hint := m.protectedHint(); hint != "" {
 		// Directly under the list, above the help's top margin.
