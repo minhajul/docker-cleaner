@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/bubbletea"
 	client "github.com/fsouza/go-dockerclient"
+	mobyclient "github.com/moby/moby/client"
 )
 
 type CleanupItemType int
@@ -52,7 +54,7 @@ type CleanupResultMsg struct {
 }
 
 // API is the subset of the Docker client this app uses. Depending on it
-// instead of *client.Client lets tests substitute a fake for a real daemon.
+// instead of *Client lets tests substitute a fake for a real daemon.
 type API interface {
 	Ping() error
 	ListImages(opts client.ListImagesOptions) ([]client.APIImages, error)
@@ -60,9 +62,15 @@ type API interface {
 	RemoveImage(name string) error
 	RemoveImageExtended(name string, opts client.RemoveImageOptions) error
 	RemoveContainer(opts client.RemoveContainerOptions) error
+	ListVolumes(opts client.ListVolumesOptions) ([]client.Volume, error)
+	RemoveVolumeWithOptions(opts client.RemoveVolumeOptions) error
+	ListNetworks() ([]client.Network, error)
+	RemoveNetwork(id string) error
+	DiskUsage(ctx context.Context, opts mobyclient.DiskUsageOptions) (mobyclient.DiskUsageResult, error)
+	BuildCachePrune(ctx context.Context, opts mobyclient.BuildCachePruneOptions) (mobyclient.BuildCachePruneResult, error)
 }
 
-var _ API = (*client.Client)(nil)
+var _ API = (*Client)(nil)
 
 func (e ErrMsg) Error() string {
 	return e.Err.Error()
