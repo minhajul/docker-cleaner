@@ -273,9 +273,11 @@ func reportEntry(e Entry) ReportEntry {
 	return re
 }
 
-// writeJSON writes r to w as indented JSON.
+// writeJSON writes r to w as indented JSON. Names such as "<none>" are kept
+// readable rather than escaped for HTML.
 func writeJSON(w io.Writer, r Report) {
 	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(r)
 }

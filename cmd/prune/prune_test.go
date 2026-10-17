@@ -535,6 +535,9 @@ func TestRunJSONDryRun(t *testing.T) {
 	if string(raw["deleted"]) != "[]" || string(raw["failed"]) != "[]" {
 		t.Errorf("deleted = %s, failed = %s; want []", raw["deleted"], raw["failed"])
 	}
+	if !strings.Contains(r.stdout, `"name": "<none>"`) {
+		t.Errorf("JSON escapes the untagged image's name:\n%s", r.stdout)
+	}
 
 	var rep Report
 	if err := json.Unmarshal([]byte(r.stdout), &rep); err != nil {
