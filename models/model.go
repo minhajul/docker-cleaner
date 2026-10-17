@@ -252,6 +252,12 @@ func (m *Model) updateItems() {
 			// Remove leading slash from container name
 			name = strings.TrimPrefix(container.Names[0], "/")
 		}
+		// Show the state so running containers, which removal will refuse,
+		// stand out.
+		state := container.State
+		if state == "" {
+			state = "unknown"
+		}
 		// Mirror `docker ps -s`: SizeRw is the container's writable layer,
 		// which is all a delete frees; SizeRootFs (virtual) also counts the
 		// image layers, which stay on disk until the image is removed.
@@ -259,7 +265,7 @@ func (m *Model) updateItems() {
 		m.items = append(m.items, SelectableItem{
 			ID:      container.ID,
 			Type:    ItemTypeContainer,
-			Display: fmt.Sprintf("%s (ID: %s, Image: %s, Size: %s)", name, docker.ShortID(container.ID), container.Image, size),
+			Display: fmt.Sprintf("%s (ID: %s, Image: %s, State: %s, Size: %s)", name, docker.ShortID(container.ID), container.Image, state, size),
 		})
 	}
 }

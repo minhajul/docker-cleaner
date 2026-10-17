@@ -15,24 +15,24 @@ func TestUpdateItemsContainerDisplay(t *testing.T) {
 		{
 			name: "writable layer and virtual size",
 			container: dockerClient.APIContainers{
-				ID: "container1234abcd", Names: []string{"/web"}, Image: "nginx",
+				ID: "container1234abcd", Names: []string{"/web"}, Image: "nginx", State: "running",
 				SizeRw: 12 * 1024 * 1024, SizeRootFs: 1288490188,
 			},
-			want: "web (ID: container123, Image: nginx, Size: 12.0 MB (virtual 1.2 GB))",
+			want: "web (ID: container123, Image: nginx, State: running, Size: 12.0 MB (virtual 1.2 GB))",
 		},
 		{
 			name: "no sizes reported",
 			container: dockerClient.APIContainers{
-				ID: "abcdef0123456789", Names: []string{"/db"}, Image: "postgres",
+				ID: "abcdef0123456789", Names: []string{"/db"}, Image: "postgres", State: "exited",
 			},
-			want: "db (ID: abcdef012345, Image: postgres, Size: 0 B (virtual 0 B))",
+			want: "db (ID: abcdef012345, Image: postgres, State: exited, Size: 0 B (virtual 0 B))",
 		},
 		{
-			name: "unnamed container",
+			name: "unnamed container without state",
 			container: dockerClient.APIContainers{
 				ID: "0123456789abcdef", Image: "alpine", SizeRw: 512, SizeRootFs: 2048,
 			},
-			want: "<none> (ID: 0123456789ab, Image: alpine, Size: 512 B (virtual 2.0 KB))",
+			want: "<none> (ID: 0123456789ab, Image: alpine, State: unknown, Size: 512 B (virtual 2.0 KB))",
 		},
 	}
 	for _, c := range cases {
