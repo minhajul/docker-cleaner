@@ -11,7 +11,7 @@ A terminal UI for finding and removing Docker images and containers, built with 
 ### Features
 
 - Lists your images and containers (running and stopped) with their sizes and state
-- Hides Kubernetes, minikube, k3s and kind system images and containers so you can't break your cluster
+- Hides Kubernetes, minikube, k3s and kind system images and containers so you can't break your cluster, plus anything you list in a [protect-list](#protecting-resources)
 - Select items one by one, a whole section, or everything
 - Asks before deleting, shows how much space will be freed, and warns about running containers
 - Reports each failure with its reason, and offers a forced retry for images that are in use or have several tags
@@ -46,8 +46,9 @@ Select what to remove and press `d`. Nothing is deleted until you confirm with `
 docker-cleaner connects to the same daemon as the `docker` CLI: `DOCKER_HOST` if it is set, otherwise the context named by `DOCKER_CONTEXT`, otherwise your current context (`docker context use`).
 
 ```text
-docker-cleaner --version   Print the version
-docker-cleaner --help      Show flags and keys
+docker-cleaner --version         Print the version
+docker-cleaner --help            Show flags and keys
+docker-cleaner --config <path>   Use another config file
 ```
 
 #### Keys
@@ -62,8 +63,40 @@ docker-cleaner --help      Show flags and keys
 | `d` | Delete selected (asks for confirmation) |
 | `y` / `f` / `n` | In the confirmation: delete / force-delete running containers / cancel |
 | `f` | After a cleanup: force-remove images that failed because they are in use or have several tags |
+| `p` | Show or hide protected items (listed read-only, never selected) |
 | `?` | Show all keys |
 | `q`, `ctrl+c` | Quit |
+
+### Protecting resources
+
+Images and containers you never want to delete can be listed in a config file at `~/.config/docker-cleaner/config.yaml` (or `$XDG_CONFIG_HOME/docker-cleaner/config.yaml` if `XDG_CONFIG_HOME` is set; macOS uses the same path). Pass `--config <path>` to use another file. The file is optional.
+
+```yaml
+# Resources matching any pattern are hidden and can't be deleted.
+protect:
+  - "postgres:*"        # image repo:tag glob
+  - "my-db"             # container name
+  - "prod-*"
+```
+
+Protected resources, including the built-in Kubernetes ones, are hidden; a line under the list counts them (`🔒 3 protected items hidden · press p to show`). Press `p` to list them dimmed with a 🔒 and the reason (`system` or `protect-list`). They can't be selected, so select all and delete never touch them.
+
+Matching rules:
+
+- Patterns are globs: `*` matches any run of characters, `?` one character, `[a-z]` a set; `\` escapes. Unlike file-name globs, `*` and `?` also match `/`.
+- A pattern must match a whole name, and case matters.
+- Every pattern is checked against every resource:
+  - an **image** by each tag and each tag's repository, so `postgres` and `postgres:*` protect every `postgres` tag, while `postgres:16` protects only that tag. Untagged (`<none>`) images match nothing.
+  - a **container** by its name, without Docker's leading `/` (a leading `/` on a pattern is ignored too). A container is not protected by its image's name.
+
+| Pattern | Matches | Doesn't match |
+|---|---|---|
+| `postgres` | image `postgres:16`, container `postgres` | `postgres-exporter:1`, container `my-postgres` |
+| `postgres:1?` | `postgres:15`, `postgres:16` | `postgres:9`, `postgres:16.4` |
+| `ghcr.io/acme/*` | `ghcr.io/acme/api:1.0`, `ghcr.io/acme/tools/cli:2` | `ghcr.io/other/api:1.0` |
+| `prod-*` | container `prod-web-1`, image `prod-api:2.1` | `staging-prod-web` |
+
+A malformed file, an unknown key (such as a misspelt `protect`) or an invalid pattern stops docker-cleaner with an error naming the file.
 
 ### Development
 
