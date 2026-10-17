@@ -1,0 +1,80 @@
+name: Bug report
+description: Something in docker-cleaner doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please search existing issues first, and fill in as much as you can below.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug. Include any error messages shown in the TUI.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The keys you pressed and the Docker objects involved, if relevant.
+      placeholder: |
+        1. Run `docker-cleaner`
+        2. Switch to the Images tab
+        3. Select ... and press ...
+        4. See error
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows
+    validations:
+      required: true
+
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Docker runtime
+      options:
+        - Docker Desktop
+        - Colima
+        - OrbStack
+        - Rancher Desktop
+        - Podman
+        - Docker Engine on Linux
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: docker-cleaner version
+      description: Output of `docker-cleaner --version`.
+      placeholder: docker-cleaner v0.1.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: docker-version
+    attributes:
+      label: Output of `docker version`
+      render: shell
+    validations:
+      required: false
