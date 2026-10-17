@@ -70,10 +70,11 @@ func FetchDockerImages(cli API) tea.Cmd {
 }
 
 // FetchDockerContainers returns a tea.Cmd that fetches all Docker containers
-// using the provided client.
+// using the provided client. Sizes are requested explicitly; without them the
+// daemon leaves SizeRw and SizeRootFs at zero.
 func FetchDockerContainers(cli API) tea.Cmd {
 	return func() tea.Msg {
-		containers, err := cli.ListContainers(client.ListContainersOptions{All: true})
+		containers, err := cli.ListContainers(client.ListContainersOptions{All: true, Size: true})
 		if err != nil {
 			return ErrMsg{err}
 		}
