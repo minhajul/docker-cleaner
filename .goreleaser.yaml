@@ -45,6 +45,24 @@ checksum:
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
 
+# Release notes, grouped by Conventional Commit type (see CONTRIBUTING.md).
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - '^(docs|test|chore)(\(.+\))?!?:'
+      - "^Merge "
+  groups:
+    - title: Features
+      regexp: '^feat(\(.+\))?!?:'
+      order: 0
+    - title: Bug fixes
+      regexp: '^fix(\(.+\))?!?:'
+      order: 1
+    - title: Others
+      order: 999
+
 homebrew_casks:
   - name: docker-cleaner
     ids:
