@@ -111,7 +111,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 // place of keyMap.
 type confirmKeyMap struct {
 	Yes   key.Binding
-	Force key.Binding // enabled only while a selected container is running
+	Force key.Binding // enabled only while a selected container is running, paused or restarting
 	No    key.Binding
 	Quit  key.Binding
 }
@@ -132,9 +132,11 @@ func defaultConfirmKeyMap() confirmKeyMap {
 			key.WithKeys("n", "N", "esc"),
 			key.WithHelp("n/esc", "cancel"),
 		),
+		// Quit matches keyMap.Quit, so q quits whether or not the dialog is
+		// open.
 		Quit: key.NewBinding(
-			key.WithKeys("ctrl+c"),
-			key.WithHelp("ctrl+c", "quit"),
+			key.WithKeys("q", "ctrl+c"),
+			key.WithHelp("q", "quit"),
 		),
 	}
 }
