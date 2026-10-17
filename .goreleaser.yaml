@@ -1,0 +1,69 @@
+# GoReleaser configuration. Releases are cut by pushing a vX.Y.Z tag; see
+# .github/workflows/release.yml. Try it locally with:
+#   goreleaser release --snapshot --clean --skip=publish
+version: 2
+
+project_name: docker-cleaner
+
+builds:
+  - id: docker-cleaner
+    main: .
+    binary: docker-cleaner
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.Date}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: docker-cleaner
+    ids:
+      - docker-cleaner
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+homebrew_casks:
+  - name: docker-cleaner
+    ids:
+      - docker-cleaner
+    binaries:
+      - docker-cleaner
+    description: "Terminal UI for removing Docker images and containers"
+    homepage: "https://github.com/minhajul/docker-cleaner"
+    license: MIT
+    repository:
+      owner: minhajul
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    commit_msg_template: "chore: update {{ .ProjectName }} cask to {{ .Tag }}"
+    # The binaries are not signed or notarized, so macOS would refuse to run
+    # them; drop the quarantine attribute after install.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/docker-cleaner"]
+          end

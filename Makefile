@@ -44,3 +44,4 @@ help: ## Show this help message
 clean:
 	go clean
 	rm -f $(BINARY_NAME)
+	rm -rf dist
