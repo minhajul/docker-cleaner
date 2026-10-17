@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestConfirmQQuits(t *testing.T) {
@@ -34,6 +35,38 @@ func TestConfirmFooterNamesQ(t *testing.T) {
 	}
 	if strings.Contains(view, "ctrl+c") {
 		t.Errorf("dialog footer should name q, not ctrl+c, got:\n%s", view)
+	}
+}
+
+func TestHeaderCursorBesideText(t *testing.T) {
+	m := newModel(nil)
+	m = updated(m, images(imgA))
+	m = updated(m, containers(ctrX))
+
+	for i, item := range m.items {
+		if item.Type != ItemTypeHeader {
+			continue
+		}
+		m.cursor = -1
+		plain := m.rowView(i)
+		m.cursor = i
+		row := m.rowView(i)
+
+		lines := strings.Split(row, "\n")
+		last := lines[len(lines)-1]
+		if !strings.Contains(last, "▶") || !strings.Contains(last, item.Display) {
+			t.Errorf("header %q: cursor should share the header text's line, got %q", item.Display, row)
+		}
+		for _, l := range lines[:len(lines)-1] {
+			if strings.TrimSpace(l) != "" {
+				t.Errorf("header %q: margin line %q should be blank", item.Display, l)
+			}
+		}
+		// The scroll logic sizes rows by height, so the cursor must not
+		// change it.
+		if got, want := lipgloss.Height(row), lipgloss.Height(plain); got != want || want != 2 {
+			t.Errorf("header %q: height with cursor = %d, without = %d, want both 2", item.Display, got, want)
+		}
 	}
 }
 
