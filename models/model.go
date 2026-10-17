@@ -30,8 +30,8 @@ type SelectableItem struct {
 	Type    ItemType
 	Display string
 	// Size is the disk space deleting the item frees: an image's Size, a
-	// container's writable layer (SizeRw), or a volume's size (0 if
-	// unknown).
+	// container's writable layer (SizeRw), a volume's size (0 if
+	// unknown) or the build cache's reclaimable space.
 	Size int64
 	// State is a container's state as reported by Docker (e.g. "running");
 	// empty for other items and headers.
@@ -51,8 +51,8 @@ type Model struct {
 	containers   []dockerClient.APIContainers
 	volumes      []dockerClient.Volume
 	networks     []dockerClient.Network
-	// diskUsage adds volume sizes to the lists; diskUsageErr is why it
-	// could not be fetched, if it could not.
+	// diskUsage adds volume sizes and the build cache to the lists;
+	// diskUsageErr is why it could not be fetched, if it could not.
 	diskUsage    docker.DiskUsage
 	diskUsageErr error
 	errorMsg     string
@@ -92,6 +92,7 @@ type pendingDelete struct {
 	containers int
 	volumes    int
 	networks   int
+	buildCache bool
 	size       int64 // bytes freed: the selected rows' Size (see SelectableItem)
 	running    int   // selected containers that are running
 }
@@ -368,6 +369,8 @@ func (m *Model) newPendingDelete() *pendingDelete {
 			p.volumes++
 		case ItemTypeNetwork:
 			p.networks++
+		case ItemTypeBuildCache:
+			p.buildCache = true
 		case ItemTypeContainer:
 			p.containers++
 			if row.State == "running" {
@@ -379,7 +382,8 @@ func (m *Model) newPendingDelete() *pendingDelete {
 }
 
 // prompt is the dialog's question, e.g. "Delete 3 images, 2 containers
-// (1.4 GB)? y/N". Only the types selected are named.
+// (1.4 GB)? y/N" or "Delete 2 images, 1 volume, build cache (3.4 GB)? y/N".
+// Only the types selected are named.
 func (p *pendingDelete) prompt() string {
 	var parts []string
 	if p.images > 0 {
@@ -393,6 +397,9 @@ func (p *pendingDelete) prompt() string {
 	}
 	if p.networks > 0 {
 		parts = append(parts, plural(p.networks, "network"))
+	}
+	if p.buildCache {
+		parts = append(parts, "build cache")
 	}
 	return fmt.Sprintf("Delete %s (%s)? y/N", strings.Join(parts, ", "), docker.HumanSize(p.size))
 }
@@ -506,6 +513,9 @@ func (m *Model) getSelectionForCleanup() []docker.CleanupItem {
 				items = append(items, docker.CleanupItem{
 					ID:   item.ID,
 					Type: docker.CleanupItemType(item.Type),
+					// Prune with All only when a plain prune would
+					// leave part of the reclaimable space shown.
+					Force: typ == ItemTypeBuildCache && m.diskUsage.BuildCache.NeedsAll,
 				})
 			}
 		}
@@ -654,6 +664,7 @@ func (m *Model) updateItems() {
 
 	m.items = append(m.items, m.volumeRows()...)
 	m.items = append(m.items, m.networkRows()...)
+	m.items = append(m.items, m.buildCacheRows()...)
 
 	m.reconcileSelection()
 	m.scrollToCursor()

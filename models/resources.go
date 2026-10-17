@@ -11,8 +11,9 @@ import (
 // Section headers of the resources listed after images and containers. Each
 // section is left out while it has nothing to show.
 const (
-	volumesHeader  = "💾 Volumes"
-	networksHeader = "🔗 Networks"
+	volumesHeader    = "💾 Volumes"
+	networksHeader   = "🔗 Networks"
+	buildCacheHeader = "🧱 Build cache"
 )
 
 // volumeRows returns the Volumes section: its header and one row per user
@@ -115,6 +116,38 @@ func (m *Model) networkContainers(n dockerClient.Network) int {
 	return len(attached)
 }
 
+// buildCacheRows returns the Build cache section: its header and a single
+// row standing for the whole cache, e.g. "Build cache: 312 entries, 4.1 GB
+// reclaimable". There is nothing to show while the disk usage has not
+// arrived or the cache has nothing reclaimable; if the disk usage could not
+// be fetched, the header alone says so.
+func (m *Model) buildCacheRows() []SelectableItem {
+	if m.diskUsageErr != nil {
+		return []SelectableItem{{
+			Type:    ItemTypeHeader,
+			Display: fmt.Sprintf("%s (unavailable: %v)", buildCacheHeader, m.diskUsageErr),
+		}}
+	}
+	bc := m.diskUsage.BuildCache
+	if bc.Reclaimable <= 0 {
+		return nil
+	}
+	entries := fmt.Sprintf("%d entries", bc.Entries)
+	if bc.Entries == 1 {
+		entries = "1 entry"
+	}
+	return []SelectableItem{
+		{Type: ItemTypeHeader, Display: buildCacheHeader},
+		{
+			ID:      docker.BuildCacheID,
+			Type:    ItemTypeBuildCache,
+			Display: fmt.Sprintf("Build cache: %s, %s reclaimable", entries, docker.HumanSize(bc.Reclaimable)),
+			Size:    bc.Reclaimable,
+			Name:    "build cache",
+		},
+	}
+}
+
 // volumeName shortens an anonymous volume's name, a random 64-character hex
 // string, to a short ID; other names are kept whole.
 func volumeName(name string) string {
@@ -126,10 +159,14 @@ func volumeName(name string) string {
 
 // failureLabel names a failed item in the cleanup report: "<short id> <name>"
 // for images, containers and networks (or just the short ID if the item is no
-// longer listed), and the name alone for volumes, whose name is their ID.
+// longer listed), the name alone for volumes, whose name is their ID, and
+// "build cache" for the build cache.
 func failureLabel(item docker.CleanupItem, name string) string {
-	if item.Type == docker.CleanupItemTypeVolume {
+	switch item.Type {
+	case docker.CleanupItemTypeVolume:
 		return volumeName(item.ID)
+	case docker.CleanupItemTypeBuildCache:
+		return "build cache"
 	}
 	label := docker.ShortID(item.ID)
 	if name != "" {

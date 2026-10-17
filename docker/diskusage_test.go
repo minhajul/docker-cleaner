@@ -9,9 +9,51 @@ import (
 	"github.com/minhajul/docker-cleaner/docker/dockertest"
 
 	client "github.com/fsouza/go-dockerclient"
+	"github.com/moby/moby/api/types/build"
 	"github.com/moby/moby/api/types/volume"
 	mobyclient "github.com/moby/moby/client"
 )
+
+func TestFetchDiskUsageBuildCache(t *testing.T) {
+	record := func(typ string, size int64, inUse, shared bool) build.CacheRecord {
+		return build.CacheRecord{Type: typ, Size: size, InUse: inUse, Shared: shared}
+	}
+	cases := []struct {
+		name    string
+		records []build.CacheRecord
+		want    bool // NeedsAll
+	}{
+		{"no records", nil, false},
+		{"plain prune frees everything", []build.CacheRecord{record("regular", 10, false, false), record("source.local", 5, false, false)}, false},
+		{"unused frontend", []build.CacheRecord{record("regular", 10, false, false), record("frontend", 40, false, false)}, true},
+		{"unused internal", []build.CacheRecord{record("internal", 1, false, false)}, true},
+		// Not reclaimable anyway, so no reason for All.
+		{"frontend in use", []build.CacheRecord{record("frontend", 40, true, false)}, false},
+		{"shared frontend", []build.CacheRecord{record("frontend", 40, false, true)}, false},
+		{"empty frontend", []build.CacheRecord{record("frontend", 0, false, false)}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fake := &dockertest.Fake{Usage: mobyclient.DiskUsageResult{
+				BuildCache: mobyclient.BuildCacheDiskUsage{
+					TotalCount:  int64(len(c.records)) + 1,
+					Reclaimable: 50,
+					Items:       c.records,
+				},
+			}}
+
+			got := docker.FetchDiskUsage(fake)().(docker.DiskUsageFetchedMsg).Usage.BuildCache
+
+			want := docker.BuildCacheUsage{Entries: int64(len(c.records)) + 1, Reclaimable: 50, NeedsAll: c.want}
+			if got != want {
+				t.Errorf("BuildCache = %+v, want %+v", got, want)
+			}
+			if !fake.DiskUsageOpts.BuildCache {
+				t.Errorf("DiskUsage options = %+v, want BuildCache", fake.DiskUsageOpts)
+			}
+		})
+	}
+}
 
 func TestFetchDiskUsage(t *testing.T) {
 	fake := &dockertest.Fake{

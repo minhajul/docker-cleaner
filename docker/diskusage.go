@@ -17,12 +17,28 @@ type VolumeUsage struct {
 	RefCount int64
 }
 
+// BuildCacheUsage summarises the builder's cache.
+type BuildCacheUsage struct {
+	// Entries is the number of cache records, in use or not.
+	Entries int64
+	// Reclaimable is the space the unused records take, in bytes, as
+	// `docker system df` reports it.
+	Reclaimable int64
+	// NeedsAll reports whether freeing all of Reclaimable takes a prune
+	// with All set. A plain prune (`docker builder prune`) keeps unused
+	// internal and frontend records (e.g. the Dockerfile frontend image),
+	// which the daemon still counts as reclaimable.
+	NeedsAll bool
+}
+
 // DiskUsage is the part of the daemon's disk usage report (`docker system
 // df -v`) that docker-cleaner shows.
 type DiskUsage struct {
 	// Volumes maps a volume's name to its usage. A volume missing from it
 	// has no usage data.
 	Volumes map[string]VolumeUsage
+	// BuildCache is zero if the daemon reports no build cache.
+	BuildCache BuildCacheUsage
 }
 
 // DiskUsageFetchedMsg carries the daemon's disk usage, or the error fetching
@@ -39,10 +55,11 @@ type DiskUsageFetchedMsg struct {
 func FetchDiskUsage(cli API) tea.Cmd {
 	return func() tea.Msg {
 		// Verbose: from API 1.52 the daemon lists the individual volumes
-		// only when asked to.
+		// and build cache records only when asked to.
 		res, err := cli.DiskUsage(context.Background(), mobyclient.DiskUsageOptions{
-			Volumes: true,
-			Verbose: true,
+			Volumes:    true,
+			BuildCache: true,
+			Verbose:    true,
 		})
 		if err != nil {
 			return DiskUsageFetchedMsg{Err: err}
@@ -59,5 +76,23 @@ func newDiskUsage(res mobyclient.DiskUsageResult) DiskUsage {
 			u.Volumes[v.Name] = VolumeUsage{Size: v.UsageData.Size, RefCount: v.UsageData.RefCount}
 		}
 	}
+
+	bc := res.BuildCache
+	u.BuildCache = BuildCacheUsage{Entries: bc.TotalCount, Reclaimable: bc.Reclaimable}
+	for _, r := range bc.Items {
+		// The records BuildKit's prune skips unless All is set.
+		keptByPlainPrune := r.Type == buildCacheTypeInternal || r.Type == buildCacheTypeFrontend
+		if keptByPlainPrune && !r.InUse && !r.Shared && r.Size > 0 {
+			u.BuildCache.NeedsAll = true
+			break
+		}
+	}
 	return u
 }
+
+// Build cache record types (build.CacheRecord.Type) that a prune without
+// All keeps.
+const (
+	buildCacheTypeInternal = "internal"
+	buildCacheTypeFrontend = "frontend"
+)
