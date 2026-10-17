@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/minhajul/docker-cleaner/cmd/prune"
 	"github.com/minhajul/docker-cleaner/models"
 	"github.com/minhajul/docker-cleaner/styles"
 
@@ -27,6 +28,12 @@ const usageText = `docker-cleaner - remove Docker images, containers, volumes, n
 
 Usage:
   docker-cleaner [flags]
+  docker-cleaner prune [flags]
+
+Commands:
+  prune          Delete what filters match, without the UI, for scripts, cron
+                 and CI, e.g. docker-cleaner prune --dangling --older-than 7d
+                 --yes. See docker-cleaner prune --help.
 
 Flags:
       --config <path>  Read the config file at path instead of the default
@@ -63,6 +70,9 @@ func main() {
 	if exit {
 		os.Exit(code)
 	}
+	if opts.prune {
+		os.Exit(prune.Main(opts.pruneArgs, os.Stdin, os.Stdout, os.Stderr))
+	}
 
 	m, err := models.InitialModel(opts.configPath)
 	if err != nil {
@@ -82,12 +92,20 @@ type options struct {
 	// configPath is the config file named by --config; empty for the
 	// default location.
 	configPath string
+	// prune is set when the first argument is the prune command, which
+	// then handles pruneArgs, the arguments after it.
+	prune     bool
+	pruneArgs []string
 }
 
 // parseFlags handles the command-line flags. It returns the options to start
-// the TUI with, or reports that the program should exit instead, and with
-// which exit code.
+// the TUI with, or to run the prune command if the first argument names it,
+// or reports that the program should exit instead, and with which exit code.
 func parseFlags(args []string, stdout, stderr io.Writer) (opts options, code int, exit bool) {
+	if len(args) > 0 && args[0] == "prune" {
+		return options{prune: true, pruneArgs: args[1:]}, 0, false
+	}
+
 	fs := flag.NewFlagSet("docker-cleaner", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { _, _ = fmt.Fprint(fs.Output(), usageText) }
