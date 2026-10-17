@@ -71,7 +71,7 @@ func TestVolumesSection(t *testing.T) {
 
 func TestVolumesSectionHiddenWhenEmpty(t *testing.T) {
 	m := loaded(t, newFake())
-	if strings.Contains(m.View(), "Volumes") {
+	if strings.Contains(m.View(), volumesHeader) {
 		t.Errorf("view should not show an empty Volumes section, got:\n%s", m.View())
 	}
 }

@@ -11,6 +11,7 @@ A terminal UI for finding and removing Docker images, containers, volumes, netwo
 ### Features
 
 - Lists your images, containers (running and stopped), volumes, networks and build cache, with sizes, state and what is in use
+- Sums up disk usage per type, and how much of it is reclaimable, like `docker system df`, and keeps a running total of what you have selected
 - Hides Kubernetes, minikube, k3s and kind system resources so you can't break your cluster, plus anything you list in a [protect-list](#protecting-resources)
 - Select items one by one, a whole section, or everything
 - Asks before deleting, shows how much space will be freed, and warns about running containers

@@ -53,7 +53,7 @@ func TestBuildCacheSectionHidden(t *testing.T) {
 			fake := newFake()
 			fake.Usage.BuildCache = c.usage
 			m := loaded(t, fake)
-			if strings.Contains(m.View(), "Build cache") {
+			if strings.Contains(m.View(), buildCacheHeader) {
 				t.Errorf("view should not show the build cache, got:\n%s", m.View())
 			}
 		})
