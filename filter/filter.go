@@ -9,8 +9,11 @@
 package filter
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"slices"
+	"strconv"
 	"time"
 
 	client "github.com/fsouza/go-dockerclient"
@@ -88,6 +91,40 @@ func FormatAge(d time.Duration) string {
 		return fmt.Sprintf("%dd", d/Day)
 	}
 	return d.String()
+}
+
+// ParseAge parses an age for OlderThan: a whole number of days ("30d") or
+// weeks ("2w"), or a Go duration ("12h", "90m", "1h30m"). The age must be
+// positive.
+func ParseAge(s string) (time.Duration, error) {
+	d, err := parseAge(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid age %q: %w", s, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("invalid age %q: must be more than zero", s)
+	}
+	return d, nil
+}
+
+// parseAge is ParseAge without the checks on the result.
+func parseAge(s string) (time.Duration, error) {
+	unit := map[string]time.Duration{"d": Day, "w": 7 * Day}[s[max(0, len(s)-1):]]
+	if unit == 0 {
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return 0, errors.New("want a number of days (30d), weeks (2w) or hours (12h)")
+		}
+		return d, nil
+	}
+	n, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
+	if err != nil {
+		return 0, errors.New("want a whole number before d or w, e.g. 30d")
+	}
+	if n > int64(math.MaxInt64/unit) {
+		return 0, errors.New("too long")
+	}
+	return time.Duration(n) * unit, nil
 }
 
 // Images returns the images that pass the filters, in their original order.

@@ -1,7 +1,9 @@
 package filter
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -331,6 +333,54 @@ func TestFormatAge(t *testing.T) {
 	for _, c := range cases {
 		if got := FormatAge(c.d); got != c.want {
 			t.Errorf("FormatAge(%v) = %q, want %q", c.d, got, c.want)
+		}
+	}
+}
+
+func TestParseAge(t *testing.T) {
+	cases := []struct {
+		in   string
+		want time.Duration
+	}{
+		{"30d", 30 * Day},
+		{"1d", Day},
+		{"2w", 14 * Day},
+		{"12h", 12 * time.Hour},
+		{"90m", 90 * time.Minute},
+		{"1h30m", 90 * time.Minute},
+		{"036d", 36 * Day},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			got, err := ParseAge(c.in)
+			if err != nil || got != c.want {
+				t.Errorf("ParseAge(%q) = %v, %v; want %v", c.in, got, err, c.want)
+			}
+		})
+	}
+}
+
+func TestParseAgeInvalid(t *testing.T) {
+	for _, in := range []string{
+		"", "30", "d", "w", "30x", "1.5d", "thirty days", "d30", "3 d",
+		"0d", "0h", "-1d", "-2h", "0",
+		"99999999999999999999d", "200000w",
+	} {
+		t.Run(in, func(t *testing.T) {
+			if d, err := ParseAge(in); err == nil {
+				t.Errorf("ParseAge(%q) = %v, want an error", in, d)
+			} else if !strings.Contains(err.Error(), fmt.Sprintf("%q", in)) {
+				t.Errorf("ParseAge(%q) error %q does not name the input", in, err)
+			}
+		})
+	}
+}
+
+func TestParseAgeRoundTrip(t *testing.T) {
+	for _, d := range []time.Duration{Day, 7 * Day, 30 * Day, 36 * time.Hour} {
+		got, err := ParseAge(FormatAge(d))
+		if err != nil || got != d {
+			t.Errorf("ParseAge(FormatAge(%v)) = %v, %v", d, got, err)
 		}
 	}
 }
