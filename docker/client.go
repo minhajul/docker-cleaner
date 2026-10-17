@@ -1,7 +1,10 @@
 package docker
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbletea"
@@ -26,6 +29,18 @@ type CleanupMsg struct{ ItemsToClean []CleanupItem }
 type CleanupDoneMsg struct{ Message string }
 type ErrMsg struct{ Err error }
 
+// API is the subset of the Docker client this app uses. Depending on it
+// instead of *client.Client lets tests substitute a fake for a real daemon.
+type API interface {
+	Ping() error
+	ListImages(opts client.ListImagesOptions) ([]client.APIImages, error)
+	ListContainers(opts client.ListContainersOptions) ([]client.APIContainers, error)
+	RemoveImage(name string) error
+	RemoveContainer(opts client.RemoveContainerOptions) error
+}
+
+var _ API = (*client.Client)(nil)
+
 func (e ErrMsg) Error() string {
 	return e.Err.Error()
 }
@@ -47,7 +62,7 @@ func HumanSize(bytes int64) string {
 // FetchDockerImages returns a tea.Cmd that fetches all Docker images using the
 // provided client. Sharing the client avoids the overhead of creating a new
 // connection on every refresh.
-func FetchDockerImages(cli *client.Client) tea.Cmd {
+func FetchDockerImages(cli API) tea.Cmd {
 	return func() tea.Msg {
 		images, err := cli.ListImages(client.ListImagesOptions{All: false})
 		if err != nil {
@@ -58,10 +73,11 @@ func FetchDockerImages(cli *client.Client) tea.Cmd {
 }
 
 // FetchDockerContainers returns a tea.Cmd that fetches all Docker containers
-// using the provided client.
-func FetchDockerContainers(cli *client.Client) tea.Cmd {
+// using the provided client. Sizes are requested explicitly; without them the
+// daemon leaves SizeRw and SizeRootFs at zero.
+func FetchDockerContainers(cli API) tea.Cmd {
 	return func() tea.Msg {
-		containers, err := cli.ListContainers(client.ListContainersOptions{All: true})
+		containers, err := cli.ListContainers(client.ListContainersOptions{All: true, Size: true})
 		if err != nil {
 			return ErrMsg{err}
 		}
@@ -69,8 +85,11 @@ func FetchDockerContainers(cli *client.Client) tea.Cmd {
 	}
 }
 
-// PerformCleanup removes the selected Docker images and containers.
-func PerformCleanup(cli *client.Client, items []CleanupItem) tea.Cmd {
+// PerformCleanup removes the selected Docker images and containers. All
+// containers are removed before any image, since Docker refuses to remove an
+// image that a container still uses; the order within each type is kept.
+func PerformCleanup(cli API, items []CleanupItem) tea.Cmd {
+	items = containersFirst(items)
 	return func() tea.Msg {
 		var errors []string
 		var imageCount, containerCount int
@@ -87,10 +106,10 @@ func PerformCleanup(cli *client.Client, items []CleanupItem) tea.Cmd {
 			case CleanupItemTypeContainer:
 				err := cli.RemoveContainer(client.RemoveContainerOptions{
 					ID:    item.ID,
-					Force: true,
+					Force: false,
 				})
 				if err != nil {
-					errors = append(errors, fmt.Sprintf("failed to remove container %s: %v", ShortID(item.ID), err))
+					errors = append(errors, containerRemoveError(item.ID, err))
 				} else {
 					containerCount++
 				}
@@ -103,6 +122,33 @@ func PerformCleanup(cli *client.Client, items []CleanupItem) tea.Cmd {
 
 		return CleanupDoneMsg{Message: formatCleanupMessage(imageCount, containerCount)}
 	}
+}
+
+// containerRemoveError describes a failed container removal. Containers are
+// removed without Force, so the daemon refuses running ones with 409 Conflict;
+// that case gets a readable hint instead of the raw API error.
+func containerRemoveError(id string, err error) string {
+	var apiErr *client.Error
+	if errors.As(err, &apiErr) && apiErr.Status == http.StatusConflict {
+		return fmt.Sprintf("container %s is running; stop it first", ShortID(id))
+	}
+	return fmt.Sprintf("failed to remove container %s: %v", ShortID(id), err)
+}
+
+// containersFirst returns a copy of items with every container ahead of every
+// image, preserving the relative order within each type.
+func containersFirst(items []CleanupItem) []CleanupItem {
+	sorted := slices.Clone(items)
+	slices.SortStableFunc(sorted, func(a, b CleanupItem) int {
+		isImage := func(it CleanupItem) int {
+			if it.Type == CleanupItemTypeImage {
+				return 1
+			}
+			return 0
+		}
+		return isImage(a) - isImage(b)
+	})
+	return sorted
 }
 
 // formatCleanupMessage builds the human-readable success message shown after
@@ -139,15 +185,18 @@ func formatCleanupMessage(imageCount, containerCount int) string {
 const shortIDLength = 12
 
 // ShortID returns the canonical short form of a Docker ID (first
-// shortIDLength hex characters). Panics if the ID is shorter than
+// shortIDLength hex characters), matching the IMAGE ID / CONTAINER ID
+// columns of the docker CLI. A leading "sha256:" digest prefix, as found on
+// image IDs, is stripped first. Panics if the remaining ID is shorter than
 // shortIDLength, since a corrupt short ID indicates bad data from the
 // Docker daemon and should surface loudly rather than be silently passed
 // through.
 func ShortID(id string) string {
-	if len(id) < shortIDLength {
-		panic(fmt.Sprintf("docker: ShortID called with %d-char id %q (need >= %d)", len(id), id, shortIDLength))
+	hex := strings.TrimPrefix(id, "sha256:")
+	if len(hex) < shortIDLength {
+		panic(fmt.Sprintf("docker: ShortID called with %d-char id %q (need >= %d)", len(hex), id, shortIDLength))
 	}
-	return id[:shortIDLength]
+	return hex[:shortIDLength]
 }
 
 // System container and image prefixes. Anything matching is hidden from the

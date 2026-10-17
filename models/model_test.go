@@ -15,6 +15,10 @@ func TestShortID(t *testing.T) {
 	}{
 		{"exactly12ccc", "exactly12ccc"},     // 12 chars -> returned whole
 		{"1234567890abcdef", "1234567890ab"}, // 16 chars -> first 12
+		// Image IDs carry a digest prefix that must not eat into the 12 chars.
+		{"sha256:e757967a5ec338f6b9a6f8e4c3d2b1a0e757967a5ec338f6b9a6f8e4c3d2b1a0", "e757967a5ec3"},
+		// Container IDs are bare 64-char hex.
+		{"e757967a5ec338f6b9a6f8e4c3d2b1a0e757967a5ec338f6b9a6f8e4c3d2b1a0", "e757967a5ec3"},
 	}
 	for _, c := range cases {
 		if got := docker.ShortID(c.in); got != c.want {
@@ -24,12 +28,17 @@ func TestShortID(t *testing.T) {
 }
 
 func TestShortIDPanicsOnShortInput(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("ShortID should panic on short input")
-		}
-	}()
-	docker.ShortID("short")
+	// "sha256:short" is 12 chars, but only 5 remain once the prefix is stripped.
+	for _, in := range []string{"short", "sha256:short"} {
+		t.Run(in, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Errorf("ShortID(%q) should panic on short input", in)
+				}
+			}()
+			docker.ShortID(in)
+		})
+	}
 }
 
 func TestGetSelectionForCleanup(t *testing.T) {
@@ -38,7 +47,7 @@ func TestGetSelectionForCleanup(t *testing.T) {
 			{ID: "img1", Type: ItemTypeImage},
 			{ID: "ctr1", Type: ItemTypeContainer},
 		},
-		selected: map[int]struct{}{0: {}, 1: {}},
+		selected: map[string]struct{}{"img1": {}, "ctr1": {}},
 	}
 	items := m.getSelectionForCleanup()
 	if len(items) != 2 {
@@ -47,7 +56,7 @@ func TestGetSelectionForCleanup(t *testing.T) {
 	// headers should be filtered out
 	m.items = append(m.items, SelectableItem{ID: "h", Type: ItemTypeHeader})
 	// add another selection that hits the header — should be filtered
-	m.selected[2] = struct{}{}
+	m.selected["h"] = struct{}{}
 	items = m.getSelectionForCleanup()
 	if len(items) != 2 {
 		t.Errorf("expected headers to be filtered, got %d items", len(items))
