@@ -62,4 +62,10 @@ var (
 			Foreground(lipgloss.Color("#F59E0B")).
 			Bold(true).
 			MarginTop(1)
+
+	// ScrollIndicator is the style for the "↑ N more" / "↓ N more" hints
+	// shown when list rows are scrolled out of view.
+	ScrollIndicator = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6B7280")).
+			Faint(true)
 )
