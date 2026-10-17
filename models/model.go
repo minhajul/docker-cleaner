@@ -100,18 +100,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.Toggle):
-			// Only allow selection of non-header items
-			if m.cursor < len(m.items) && m.items[m.cursor].Type != ItemTypeHeader {
-				id := m.items[m.cursor].ID
-				if _, ok := m.selected[id]; ok {
-					delete(m.selected, id)
-				} else {
-					if m.selected == nil {
-						m.selected = make(map[string]struct{})
-					}
-					m.selected[id] = struct{}{}
-				}
-			}
+			m.toggleAtCursor()
+
+		case key.Matches(msg, m.keys.SelectAll):
+			m.setSelected(m.items, true)
+
+		case key.Matches(msg, m.keys.SelectNone):
+			m.selected = make(map[string]struct{})
+
 		case key.Matches(msg, m.keys.Delete):
 			if len(m.selected) > 0 {
 				// Clear previous messages when starting new cleanup
@@ -239,6 +235,68 @@ func (m *Model) getSelectionForCleanup() []docker.CleanupItem {
 		}
 	}
 	return items
+}
+
+// toggleAtCursor flips the selection of the row under the cursor. On a
+// section header it toggles the whole section instead: if every item in it is
+// already selected they are all deselected, otherwise they are all selected.
+func (m *Model) toggleAtCursor() {
+	if m.cursor < 0 || m.cursor >= len(m.items) {
+		return
+	}
+	if m.items[m.cursor].Type == ItemTypeHeader {
+		section := m.sectionItems(m.cursor)
+		m.setSelected(section, !m.allSelected(section))
+		return
+	}
+	id := m.items[m.cursor].ID
+	_, ok := m.selected[id]
+	m.setSelected(m.items[m.cursor:m.cursor+1], !ok)
+}
+
+// sectionItems returns the rows belonging to the section whose header is at
+// index header: everything up to the next header or the end of the list.
+func (m *Model) sectionItems(header int) []SelectableItem {
+	end := header + 1
+	for end < len(m.items) && m.items[end].Type != ItemTypeHeader {
+		end++
+	}
+	return m.items[header+1 : end]
+}
+
+// allSelected reports whether every selectable row in items is selected. It
+// is false for a list with no selectable rows, so toggling an empty section
+// tries to select (a no-op) rather than deselect.
+func (m *Model) allSelected(items []SelectableItem) bool {
+	found := false
+	for _, item := range items {
+		if item.Type == ItemTypeHeader {
+			continue
+		}
+		if _, ok := m.selected[item.ID]; !ok {
+			return false
+		}
+		found = true
+	}
+	return found
+}
+
+// setSelected selects (on) or deselects every non-header row in items.
+// Header rows are skipped so they never enter the selection.
+func (m *Model) setSelected(items []SelectableItem, on bool) {
+	if m.selected == nil {
+		m.selected = make(map[string]struct{})
+	}
+	for _, item := range items {
+		if item.Type == ItemTypeHeader {
+			continue
+		}
+		if on {
+			m.selected[item.ID] = struct{}{}
+		} else {
+			delete(m.selected, item.ID)
+		}
+	}
 }
 
 // reconcileSelection keeps the selection and cursor consistent with a freshly

@@ -12,6 +12,9 @@ type keyMap struct {
 	Delete key.Binding
 	Help   key.Binding
 	Quit   key.Binding
+
+	SelectAll  key.Binding
+	SelectNone key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -26,7 +29,7 @@ func defaultKeyMap() keyMap {
 		),
 		Toggle: key.NewBinding(
 			key.WithKeys(" ", "enter"),
-			key.WithHelp("space", "select"),
+			key.WithHelp("space", "select / section"),
 		),
 		Delete: key.NewBinding(
 			key.WithKeys("d"),
@@ -39,6 +42,14 @@ func defaultKeyMap() keyMap {
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),
 			key.WithHelp("q", "quit"),
+		),
+		SelectAll: key.NewBinding(
+			key.WithKeys("a"),
+			key.WithHelp("a", "select all"),
+		),
+		SelectNone: key.NewBinding(
+			key.WithKeys("n"),
+			key.WithHelp("n", "select none"),
 		),
 	}
 }
@@ -55,5 +66,6 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down},
 		{k.Toggle, k.Delete},
 		{k.Help, k.Quit},
+		{k.SelectAll, k.SelectNone},
 	}
 }
