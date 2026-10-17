@@ -263,7 +263,7 @@ All 29 steps in the order to implement them. Size is a rough estimate: S is unde
 | 11 | Docker context support | 2 · Install | M | — | Done |
 | 12 | CI workflow | 2 · Install | S | — | Done |
 | 13 | GoReleaser and Homebrew tap | 2 · Install | M | 9, 10, 12 | Done |
-| 14 | README refresh and demo GIF | 2 · Install | S | 13 | In progress |
+| 14 | README refresh and demo GIF | 2 · Install | S | 13 | Done |
 | 15 | Scrolling, window size, alt screen | 3 · UX | L | — | Done |
 | 16 | Confirmation dialog | 3 · UX | M | 5, 7 | Done |
 | 17 | Bulk selection | 3 · UX | S | 5 | Done |
