@@ -19,6 +19,7 @@ A terminal UI for finding and removing Docker images, containers, volumes, netwo
 - Asks before deleting, shows how much space will be freed, and warns about running containers
 - Reports each failure with its reason, and offers a forced retry for images that are in use or have several tags
 - Works with Docker Desktop, Colima, OrbStack, Rancher Desktop and Podman through your current Docker context
+- Has a [non-interactive `prune` command](#non-interactive-use) with the same filters and protection, for scripts, cron and CI
 
 ### Installation
 
@@ -52,6 +53,7 @@ docker-cleaner connects to the same daemon as the `docker` CLI: `DOCKER_HOST` if
 docker-cleaner --version         Print the version
 docker-cleaner --help            Show flags and keys
 docker-cleaner --config <path>   Use another config file
+docker-cleaner prune [flags]     Delete what filters match, without the UI (see Non-interactive use)
 ```
 
 #### Keys
@@ -127,6 +129,90 @@ Matching rules:
 | `prod-*` | container `prod-web-1`, image `prod-api:2.1` | `staging-prod-web` |
 
 A malformed file, an unknown key (such as a misspelt `protect`) or an invalid pattern stops docker-cleaner with an error naming the file.
+
+### Non-interactive use
+
+`docker-cleaner prune` deletes what the filters match without opening the UI, for scripts, cron jobs and CI runners. It takes the TUI's filters as flags and selects exactly what the TUI would show with them, and it never deletes protected resources (the built-in system rules, your protect-list and the images protected containers run on) or Docker's predefined networks.
+
+```bash
+docker-cleaner prune --dangling --dry-run              # see what would go
+docker-cleaner prune --dangling --older-than 7d --yes  # delete it
+```
+
+| Flag | Meaning |
+|---|---|
+| `--dangling` | Untagged images |
+| `--stopped` | Stopped containers (exited, created or dead) |
+| `--unused` | Images, volumes and networks no container uses, running or stopped |
+| `--older-than <age>` | Images, containers and volumes created more than `age` ago: `30d`, `2w`, `12h` |
+| `--type <types>` | Comma-separated: `images`, `containers`, `volumes`, `networks`, `build-cache` |
+| `--dry-run` | List what would be deleted, and what is skipped and why; delete nothing |
+| `-y`, `--yes` | Delete without asking |
+| `--force` | Also remove running containers, and images that containers use or that have several tags |
+| `--json` | Print one JSON object instead of text |
+| `--config <path>` | Use another config file |
+
+Each filter narrows only the types it applies to (see the table under [Filters and search](#filters-and-search)), and filters combine with AND. Without `--type`, prune acts on every type an active filter narrows, so `--dangling` prunes only images and `--older-than 30d` prunes images, containers and volumes. `--type build-cache` prunes all unused build cache, whatever the filters; it is never included unless named.
+
+Since it deletes unattended, prune is careful:
+
+- **No filter, no prune.** Without a filter it refuses to run (exit 2), so it never means "delete everything". The one exception is `--type build-cache` alone, which does what `docker builder prune` does. It also refuses a `--type` that no given filter narrows: `--dangling --type volumes` would delete every volume.
+- **It asks first.** Without `--yes` or `--dry-run`, it shows the plan and asks `Delete 5 items (1.2 GB)? [y/N]` when run in a terminal, and refuses (exit 2) when stdin is not a terminal, as under cron or CI.
+- **Protected and in-use resources are skipped.** Protected resources are never deleted. Without `--force`, running containers, and images and volumes that a container which stays uses, are skipped too rather than failing. `--dry-run` lists every skipped resource with its reason.
+
+```text
+$ docker-cleaner prune --older-than 30d --dry-run
+Containers (1)
+  ID            NAME     SIZE    CREATED      MATCHED
+  cccccccccccc  old-job  3.0 MB  5 weeks ago  older than 30d
+
+Images (2)
+  ID            NAME      SIZE      CREATED       MATCHED
+  111111111111  <none>    100.0 MB  5 weeks ago   older than 30d
+  444444444444  alpine:3  8.0 MB    3 months ago  older than 30d
+
+Skipped (3)
+  TYPE       ID            NAME          REASON
+  container  bbbbbbbbbbbb  web           container is running; pass --force to remove it
+  image      333333333333  postgres:16   used by protected container
+  image      555555555555  nginx:latest  used by container web; pass --force to remove it
+
+Would delete 3 items (111.0 MB). Dry run: nothing was deleted.
+```
+
+A real run prints a line per resource (`deleted` or `failed` with the reason) and a summary such as `Deleted 4 · Failed 1`. With `--json`, it prints a single object instead, for a dry run and a real run alike:
+
+```json
+{
+  "dry_run": false,
+  "filters": ["dangling"],
+  "types": ["images"],
+  "planned": [{"id": "sha256:1111…", "name": "<none>", "type": "image", "size": 104857600, "created": "2026-09-07T12:00:00Z", "reason": "dangling"}],
+  "deleted": [{"id": "sha256:1111…", "name": "<none>", "type": "image", "size": 104857600, "created": "2026-09-07T12:00:00Z", "reason": "dangling"}],
+  "failed": [],
+  "skipped": [],
+  "totals": {"planned": 1, "planned_size": 104857600, "deleted": 1, "deleted_size": 104857600, "failed": 0, "skipped": 0, "build_cache_reclaimed": 0}
+}
+```
+
+`size` is in bytes (`null` when Docker does not report it), and a failed entry's `reason` says why, with `"forceable": true` when `--force` may help.
+
+Exit status: `0` when everything planned was deleted (or there was nothing to delete), `1` when a removal failed or Docker could not be reached, `2` on a usage error or refusal.
+
+**Cron**, every night at 3:00, deleting dangling images older than a week and stopped containers older than a month:
+
+```cron
+0 3 * * * /usr/local/bin/docker-cleaner prune --dangling --older-than 7d --yes >> /var/log/docker-cleaner.log 2>&1
+5 3 * * * /usr/local/bin/docker-cleaner prune --stopped --older-than 30d --yes >> /var/log/docker-cleaner.log 2>&1
+```
+
+**CI**, freeing space on a self-hosted runner after a job:
+
+```yaml
+- name: Free Docker disk space
+  if: always()
+  run: docker-cleaner prune --dangling --type images,build-cache --yes --json
+```
 
 ### Development
 
