@@ -249,20 +249,23 @@ func (m *Model) updateItems() {
 	for _, container := range containers {
 		name := "<none>"
 		if len(container.Names) > 0 {
-			name = container.Names[0]
 			// Remove leading slash from container name
-			if strings.HasPrefix(name, "/") {
-				name = name[1:]
-			}
+			name = strings.TrimPrefix(container.Names[0], "/")
 		}
-		// SizeRw is the writable layer; SizeRootFs is the read-only image.
-		// Sum them so the user sees the actual disk footprint of removing
-		// this container.
-		totalSize := container.SizeRw + container.SizeRootFs
+		// Show the state so running containers, which removal will refuse,
+		// stand out.
+		state := container.State
+		if state == "" {
+			state = "unknown"
+		}
+		// Mirror `docker ps -s`: SizeRw is the container's writable layer,
+		// which is all a delete frees; SizeRootFs (virtual) also counts the
+		// image layers, which stay on disk until the image is removed.
+		size := fmt.Sprintf("%s (virtual %s)", docker.HumanSize(container.SizeRw), docker.HumanSize(container.SizeRootFs))
 		m.items = append(m.items, SelectableItem{
 			ID:      container.ID,
 			Type:    ItemTypeContainer,
-			Display: fmt.Sprintf("%s (ID: %s, Image: %s, Size: %s)", name, docker.ShortID(container.ID), container.Image, docker.HumanSize(totalSize)),
+			Display: fmt.Sprintf("%s (ID: %s, Image: %s, State: %s, Size: %s)", name, docker.ShortID(container.ID), container.Image, state, size),
 		})
 	}
 }

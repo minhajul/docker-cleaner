@@ -1,7 +1,9 @@
 package docker
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/charmbracelet/bubbletea"
@@ -70,10 +72,11 @@ func FetchDockerImages(cli API) tea.Cmd {
 }
 
 // FetchDockerContainers returns a tea.Cmd that fetches all Docker containers
-// using the provided client.
+// using the provided client. Sizes are requested explicitly; without them the
+// daemon leaves SizeRw and SizeRootFs at zero.
 func FetchDockerContainers(cli API) tea.Cmd {
 	return func() tea.Msg {
-		containers, err := cli.ListContainers(client.ListContainersOptions{All: true})
+		containers, err := cli.ListContainers(client.ListContainersOptions{All: true, Size: true})
 		if err != nil {
 			return ErrMsg{err}
 		}
@@ -99,10 +102,10 @@ func PerformCleanup(cli API, items []CleanupItem) tea.Cmd {
 			case CleanupItemTypeContainer:
 				err := cli.RemoveContainer(client.RemoveContainerOptions{
 					ID:    item.ID,
-					Force: true,
+					Force: false,
 				})
 				if err != nil {
-					errors = append(errors, fmt.Sprintf("failed to remove container %s: %v", ShortID(item.ID), err))
+					errors = append(errors, containerRemoveError(item.ID, err))
 				} else {
 					containerCount++
 				}
@@ -115,6 +118,17 @@ func PerformCleanup(cli API, items []CleanupItem) tea.Cmd {
 
 		return CleanupDoneMsg{Message: formatCleanupMessage(imageCount, containerCount)}
 	}
+}
+
+// containerRemoveError describes a failed container removal. Containers are
+// removed without Force, so the daemon refuses running ones with 409 Conflict;
+// that case gets a readable hint instead of the raw API error.
+func containerRemoveError(id string, err error) string {
+	var apiErr *client.Error
+	if errors.As(err, &apiErr) && apiErr.Status == http.StatusConflict {
+		return fmt.Sprintf("container %s is running; stop it first", ShortID(id))
+	}
+	return fmt.Sprintf("failed to remove container %s: %v", ShortID(id), err)
 }
 
 // formatCleanupMessage builds the human-readable success message shown after
