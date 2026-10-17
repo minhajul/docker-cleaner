@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	dockerClient "github.com/fsouza/go-dockerclient"
 	"github.com/minhajul/docker-cleaner/docker"
+	"github.com/minhajul/docker-cleaner/filter"
 )
 
 // Section headers of the resources listed after images and containers. Each
@@ -19,8 +19,8 @@ const (
 // volumeRows returns the Volumes section: its header and one row per listed
 // volume (see listedVolumes), or nothing if there are none. Sizes and use
 // counts come from the daemon's disk usage; until it arrives, or if it
-// failed, a volume's size is unknown and its use is counted from the listed
-// containers' mounts.
+// failed, a volume's size is unknown and its use is counted from the
+// containers' mounts (see usage).
 func (m *Model) volumeRows() []SelectableItem {
 	volumes := m.listedVolumes()
 	if len(volumes) == 0 {
@@ -32,7 +32,7 @@ func (m *Model) volumeRows() []SelectableItem {
 		header += " (sizes unavailable)"
 	}
 	rows := []SelectableItem{{Type: ItemTypeHeader, Display: header}}
-
+	u := m.usage()
 	for _, v := range volumes {
 		usage, known := m.diskUsage.Volumes[v.Name]
 		size := "unknown"
@@ -41,10 +41,7 @@ func (m *Model) volumeRows() []SelectableItem {
 			bytes = usage.Size
 			size = docker.HumanSize(bytes)
 		}
-		refs := int64(m.volumeMounts(v.Name))
-		if known && usage.RefCount >= 0 {
-			refs = usage.RefCount
-		}
+		refs := u.VolumeRefs(v.Name)
 		use := "Unused"
 		if refs > 0 {
 			use = "Used by: " + plural(int(refs), "container")
@@ -62,21 +59,6 @@ func (m *Model) volumeRows() []SelectableItem {
 	return rows
 }
 
-// volumeMounts counts the listed containers, running or not, that mount the
-// volume called name.
-func (m *Model) volumeMounts(name string) int {
-	n := 0
-	for _, c := range m.containers {
-		for _, mount := range c.Mounts {
-			if mount.Type == "volume" && mount.Name == name {
-				n++
-				break
-			}
-		}
-	}
-	return n
-}
-
 // networkRows returns the Networks section: its header and one row per
 // listed network (see listedNetworks), or nothing if there are none.
 // Networks free no measurable space, so their Size is 0.
@@ -87,34 +69,24 @@ func (m *Model) networkRows() []SelectableItem {
 	}
 
 	rows := []SelectableItem{{Type: ItemTypeHeader, Display: networksHeader}}
+	u := m.usage()
 	for _, n := range networks {
 		rows = append(rows, SelectableItem{
 			ID:   n.ID,
 			Type: ItemTypeNetwork,
 			Display: fmt.Sprintf("%s (ID: %s, Driver: %s, Containers: %d)",
-				n.Name, docker.ShortID(n.ID), n.Driver, m.networkContainers(n)),
+				n.Name, docker.ShortID(n.ID), n.Driver, u.NetworkContainers(n)),
 			Name: n.Name,
 		})
 	}
 	return rows
 }
 
-// networkContainers counts the containers attached to n. The daemon's
-// network list leaves them out, so they are taken from the listed
-// containers' network settings, along with any the network does report.
-func (m *Model) networkContainers(n dockerClient.Network) int {
-	attached := make(map[string]struct{}, len(n.Containers))
-	for id := range n.Containers {
-		attached[id] = struct{}{}
-	}
-	for _, c := range m.containers {
-		for name, settings := range c.Networks.Networks {
-			if settings.NetworkID == n.ID || (settings.NetworkID == "" && name == n.Name) {
-				attached[c.ID] = struct{}{}
-			}
-		}
-	}
-	return len(attached)
+// usage tells which resources the fetched containers, running or not and
+// listed or not, use. Volume use counts come from the daemon's disk usage
+// when it reports them, and otherwise from the containers' mounts.
+func (m *Model) usage() filter.Usage {
+	return filter.NewUsage(m.containers, m.diskUsage.Volumes)
 }
 
 // buildCacheRows returns the Build cache section: its header and a single
