@@ -29,7 +29,7 @@ type Model struct {
 	items        []SelectableItem
 	cursor       int
 	selected     map[int]struct{}
-	dockerClient *dockerClient.Client
+	dockerClient docker.API
 	images       []dockerClient.APIImages
 	containers   []dockerClient.APIContainers
 	errorMsg     string

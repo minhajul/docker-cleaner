@@ -26,6 +26,18 @@ type CleanupMsg struct{ ItemsToClean []CleanupItem }
 type CleanupDoneMsg struct{ Message string }
 type ErrMsg struct{ Err error }
 
+// API is the subset of the Docker client this app uses. Depending on it
+// instead of *client.Client lets tests substitute a fake for a real daemon.
+type API interface {
+	Ping() error
+	ListImages(opts client.ListImagesOptions) ([]client.APIImages, error)
+	ListContainers(opts client.ListContainersOptions) ([]client.APIContainers, error)
+	RemoveImage(name string) error
+	RemoveContainer(opts client.RemoveContainerOptions) error
+}
+
+var _ API = (*client.Client)(nil)
+
 func (e ErrMsg) Error() string {
 	return e.Err.Error()
 }
@@ -47,7 +59,7 @@ func HumanSize(bytes int64) string {
 // FetchDockerImages returns a tea.Cmd that fetches all Docker images using the
 // provided client. Sharing the client avoids the overhead of creating a new
 // connection on every refresh.
-func FetchDockerImages(cli *client.Client) tea.Cmd {
+func FetchDockerImages(cli API) tea.Cmd {
 	return func() tea.Msg {
 		images, err := cli.ListImages(client.ListImagesOptions{All: false})
 		if err != nil {
@@ -59,7 +71,7 @@ func FetchDockerImages(cli *client.Client) tea.Cmd {
 
 // FetchDockerContainers returns a tea.Cmd that fetches all Docker containers
 // using the provided client.
-func FetchDockerContainers(cli *client.Client) tea.Cmd {
+func FetchDockerContainers(cli API) tea.Cmd {
 	return func() tea.Msg {
 		containers, err := cli.ListContainers(client.ListContainersOptions{All: true})
 		if err != nil {
@@ -70,7 +82,7 @@ func FetchDockerContainers(cli *client.Client) tea.Cmd {
 }
 
 // PerformCleanup removes the selected Docker images and containers.
-func PerformCleanup(cli *client.Client, items []CleanupItem) tea.Cmd {
+func PerformCleanup(cli API, items []CleanupItem) tea.Cmd {
 	return func() tea.Msg {
 		var errors []string
 		var imageCount, containerCount int
