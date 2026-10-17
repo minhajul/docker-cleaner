@@ -151,15 +151,18 @@ func formatCleanupMessage(imageCount, containerCount int) string {
 const shortIDLength = 12
 
 // ShortID returns the canonical short form of a Docker ID (first
-// shortIDLength hex characters). Panics if the ID is shorter than
+// shortIDLength hex characters), matching the IMAGE ID / CONTAINER ID
+// columns of the docker CLI. A leading "sha256:" digest prefix, as found on
+// image IDs, is stripped first. Panics if the remaining ID is shorter than
 // shortIDLength, since a corrupt short ID indicates bad data from the
 // Docker daemon and should surface loudly rather than be silently passed
 // through.
 func ShortID(id string) string {
-	if len(id) < shortIDLength {
-		panic(fmt.Sprintf("docker: ShortID called with %d-char id %q (need >= %d)", len(id), id, shortIDLength))
+	hex := strings.TrimPrefix(id, "sha256:")
+	if len(hex) < shortIDLength {
+		panic(fmt.Sprintf("docker: ShortID called with %d-char id %q (need >= %d)", len(hex), id, shortIDLength))
 	}
-	return id[:shortIDLength]
+	return hex[:shortIDLength]
 }
 
 // System container and image prefixes. Anything matching is hidden from the
