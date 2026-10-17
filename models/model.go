@@ -40,6 +40,9 @@ type Model struct {
 	refreshing   int // fetches still outstanding after the refresh key
 	keys         keyMap
 	help         help.Model
+	width        int // terminal size; 0 until the first tea.WindowSizeMsg
+	height       int
+	offset       int // index of the first list row on screen
 }
 
 // InitialModel creates a new Model connected to the Docker daemon. If Docker
@@ -118,6 +121,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.refreshCmd()
 			}
 
+		case key.Matches(msg, m.keys.PageUp):
+			m.cursor = max(m.cursor-m.pageSize(), 0)
+
+		case key.Matches(msg, m.keys.PageDown):
+			m.cursor = max(min(m.cursor+m.pageSize(), len(m.items)-1), 0)
+
+		case key.Matches(msg, m.keys.Home):
+			m.cursor = 0
+
+		case key.Matches(msg, m.keys.End):
+			m.cursor = max(len(m.items)-1, 0)
+
 		case key.Matches(msg, m.keys.Delete):
 			if len(m.selected) > 0 {
 				// Clear previous messages when starting new cleanup
@@ -132,6 +147,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		m.scrollToCursor()
+
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		m.help.Width = msg.Width
+		m.scrollToCursor()
+		return m, nil
 
 	case docker.ImagesFetchedMsg:
 		m.images = msg.Images
@@ -167,45 +189,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
+	// Scroll on a copy too: status lines added since the last Update shrink
+	// the room for the list and could otherwise push the cursor off screen.
+	m.scrollToCursor()
+
 	var s strings.Builder
-
-	s.WriteString(styles.Title.Render("🐳 Docker Cleaner"))
+	s.WriteString(m.titleView())
 	s.WriteString("\n")
+	s.WriteString(m.listView())
+	s.WriteString(m.footerView())
+	return s.String()
+}
 
-	for i, item := range m.items {
-		var line strings.Builder
+// titleView renders the title block above the list.
+func (m Model) titleView() string {
+	return styles.Title.Render("🐳 Docker Cleaner")
+}
 
-		// Cursor indicator
-		if m.cursor == i {
-			line.WriteString(styles.Cursor.Render("▶ "))
-		} else {
-			line.WriteString("  ")
-		}
-
-		// Handle different item types
-		if item.Type == ItemTypeHeader {
-			// Headers don't have checkboxes
-			line.WriteString(styles.Header.Render(item.Display))
-		} else {
-			// Checkbox for selectable items
-			_, isSelected := m.selected[item.ID]
-			if isSelected {
-				line.WriteString(styles.SelectedCheckbox.Render("✓ "))
-			} else {
-				line.WriteString(styles.UnselectedCheckbox.Render("☐ "))
-			}
-
-			// Item text with appropriate styling
-			if isSelected {
-				line.WriteString(styles.SelectedItem.Render(item.Display))
-			} else {
-				line.WriteString(styles.Item.Render(item.Display))
-			}
-		}
-
-		s.WriteString(line.String())
-		s.WriteString("\n")
-	}
+// footerView renders everything below the list: the help footer and any
+// status messages.
+func (m Model) footerView() string {
+	var s strings.Builder
 
 	s.WriteString(styles.Instructions.Render(m.help.View(m.keys)))
 
@@ -390,4 +394,5 @@ func (m *Model) updateItems() {
 	}
 
 	m.reconcileSelection()
+	m.scrollToCursor()
 }

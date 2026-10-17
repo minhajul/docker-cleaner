@@ -16,6 +16,10 @@ type keyMap struct {
 	SelectAll  key.Binding
 	SelectNone key.Binding
 	Refresh    key.Binding
+	PageUp     key.Binding
+	PageDown   key.Binding
+	Home       key.Binding
+	End        key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -56,6 +60,22 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
 		),
+		PageUp: key.NewBinding(
+			key.WithKeys("pgup"),
+			key.WithHelp("pgup", "page up"),
+		),
+		PageDown: key.NewBinding(
+			key.WithKeys("pgdown"),
+			key.WithHelp("pgdn", "page down"),
+		),
+		Home: key.NewBinding(
+			key.WithKeys("home", "g"),
+			key.WithHelp("g/home", "first"),
+		),
+		End: key.NewBinding(
+			key.WithKeys("end", "G"),
+			key.WithHelp("G/end", "last"),
+		),
 	}
 }
 
@@ -72,5 +92,6 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.Toggle, k.Delete},
 		{k.Help, k.Quit},
 		{k.SelectAll, k.SelectNone, k.Refresh},
+		{k.PageUp, k.PageDown, k.Home, k.End},
 	}
 }
