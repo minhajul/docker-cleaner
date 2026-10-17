@@ -138,6 +138,27 @@ func TestCursorClampsWhenListShrinks(t *testing.T) {
 	}
 }
 
+func TestGetSelectionForCleanupContainersFirst(t *testing.T) {
+	const ctrY = "yyyyyyyyyyyyyyyy"
+	m := Model{selected: make(map[string]struct{})}
+	m = updated(m, images(imgA, imgB))
+	m = updated(m, containers(ctrX, ctrY))
+	for _, id := range []string{imgB, ctrY, imgA, ctrX} {
+		m = toggle(t, m, id)
+	}
+
+	got := m.getSelectionForCleanup()
+	want := []docker.CleanupItem{
+		{ID: ctrX, Type: docker.CleanupItemTypeContainer},
+		{ID: ctrY, Type: docker.CleanupItemTypeContainer},
+		{ID: imgA, Type: docker.CleanupItemTypeImage},
+		{ID: imgB, Type: docker.CleanupItemTypeImage},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("getSelectionForCleanup() = %v, want %v", got, want)
+	}
+}
+
 func TestReconcileSelectionEmptyList(t *testing.T) {
 	m := Model{cursor: 5, selected: map[string]struct{}{imgA: {}}}
 	m.reconcileSelection()

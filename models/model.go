@@ -206,19 +206,23 @@ func (m Model) View() string {
 	return s.String()
 }
 
-// getSelectionForCleanup returns the selected items in list order. Iterating
-// m.items rather than the selection map keeps the order deterministic.
+// getSelectionForCleanup returns the selected items, containers first so an
+// image is never removed before a container that uses it, and otherwise in
+// list order. Iterating m.items rather than the selection map keeps the order
+// deterministic.
 func (m *Model) getSelectionForCleanup() []docker.CleanupItem {
 	var items []docker.CleanupItem
-	for _, item := range m.items {
-		if item.Type == ItemTypeHeader {
-			continue
-		}
-		if _, ok := m.selected[item.ID]; ok {
-			items = append(items, docker.CleanupItem{
-				ID:   item.ID,
-				Type: docker.CleanupItemType(item.Type),
-			})
+	for _, typ := range []ItemType{ItemTypeContainer, ItemTypeImage} {
+		for _, item := range m.items {
+			if item.Type != typ {
+				continue
+			}
+			if _, ok := m.selected[item.ID]; ok {
+				items = append(items, docker.CleanupItem{
+					ID:   item.ID,
+					Type: docker.CleanupItemType(item.Type),
+				})
+			}
 		}
 	}
 	return items
