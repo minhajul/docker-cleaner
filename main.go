@@ -53,6 +53,7 @@ Keys:
   D / S / U     Show only dangling images / stopped containers / unused items
   O             Show only items older than 7, 30, 90 days, then all again
   esc           Clear filters and search
+  s             Sort by size, age (oldest first), name, or Docker's order
   ?             Show all keys
   q, ctrl+c     Quit
 `

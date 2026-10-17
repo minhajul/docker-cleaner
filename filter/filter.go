@@ -1,7 +1,8 @@
-// Package filter narrows Docker resources down to cleanup candidates. It
-// holds the filters the TUI toggles, so that a non-interactive mode taking
-// the same filters as flags selects exactly the same resources. It works on
-// the docker package's resource types and knows nothing of the UI.
+// Package filter narrows Docker resources down to cleanup candidates and
+// orders them. It holds the filters and sort orders the TUI offers, so that
+// a non-interactive mode taking the same filters as flags selects exactly
+// the same resources. It works on the docker package's resource types and
+// knows nothing of the UI.
 //
 // Each filter narrows only the resource types it applies to and leaves the
 // others untouched (see Options.Narrows); active filters combine with AND.

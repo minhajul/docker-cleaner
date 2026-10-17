@@ -44,6 +44,9 @@ type SelectableItem struct {
 	// has neither), or a volume's or network's name, for naming the item
 	// in messages.
 	Name string
+	// Created is when the item was created; zero if unknown, as it is for
+	// networks and the build cache.
+	Created time.Time
 }
 
 type Model struct {
@@ -95,6 +98,8 @@ type Model struct {
 	searchKeys searchKeyMap
 	// now is the clock item ages are measured from; nil means time.Now.
 	now func() time.Time
+	// sortOrder orders the rows within each section.
+	sortOrder filter.SortOrder
 }
 
 // cleanupReport is what the model shows about a finished cleanup. It is
@@ -293,6 +298,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.FilterOlderThan):
 			m.setFilters(func(o *filter.Options) { o.OlderThan = nextOlderThan(o.OlderThan) })
+
+		case key.Matches(msg, m.keys.Sort):
+			m.relist(func() { m.sortOrder = m.sortOrder.Next() })
 		}
 		m.scrollToCursor()
 
@@ -754,12 +762,15 @@ func (m *Model) updateItems() {
 		if len(img.RepoTags) > 0 && img.RepoTags[0] != "<none>:<none>" {
 			name = img.RepoTags[0]
 		}
+		created := filter.ImageCreated(img)
 		rows = append(rows, SelectableItem{
-			ID:      img.ID,
-			Type:    ItemTypeImage,
-			Display: fmt.Sprintf("%s (ID: %s, Size: %s)", name, docker.ShortID(img.ID), docker.HumanSize(img.Size)),
+			ID:   img.ID,
+			Type: ItemTypeImage,
+			Display: fmt.Sprintf("%s (ID: %s, Size: %s%s)",
+				name, docker.ShortID(img.ID), docker.HumanSize(img.Size), ageSuffix(created, now)),
 			Size:    img.Size,
 			Name:    name,
+			Created: created,
 		})
 	}
 	m.items = append(m.items, m.shown(rows)...)
@@ -787,13 +798,16 @@ func (m *Model) updateItems() {
 		// which is all a delete frees; SizeRootFs (virtual) also counts the
 		// image layers, which stay on disk until the image is removed.
 		size := fmt.Sprintf("%s (virtual %s)", docker.HumanSize(container.SizeRw), docker.HumanSize(container.SizeRootFs))
+		created := filter.ContainerCreated(container)
 		rows = append(rows, SelectableItem{
-			ID:      container.ID,
-			Type:    ItemTypeContainer,
-			Display: fmt.Sprintf("%s (ID: %s, Image: %s, State: %s, Size: %s)", name, docker.ShortID(container.ID), container.Image, state, size),
+			ID:   container.ID,
+			Type: ItemTypeContainer,
+			Display: fmt.Sprintf("%s (ID: %s, Image: %s, State: %s, Size: %s%s)",
+				name, docker.ShortID(container.ID), container.Image, state, size, ageSuffix(created, now)),
 			Size:    container.SizeRw,
 			State:   container.State,
 			Name:    name,
+			Created: created,
 		})
 	}
 	m.items = append(m.items, m.shown(rows)...)

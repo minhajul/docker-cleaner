@@ -71,15 +71,19 @@ func (m *Model) relist(change func()) {
 	}
 }
 
-// shown returns the rows of one section that the list shows: those matching
-// the search (see matchesQuery).
+// shown returns the rows of one section that the list shows, in the order it
+// shows them: those matching the search (see matchesQuery), sorted by
+// m.sortOrder. It reuses rows.
 func (m *Model) shown(rows []SelectableItem) []SelectableItem {
-	if m.query == "" {
-		return rows
+	if m.query != "" {
+		rows = slices.DeleteFunc(rows, func(item SelectableItem) bool {
+			return !m.matchesQuery(item)
+		})
 	}
-	return slices.DeleteFunc(rows, func(item SelectableItem) bool {
-		return !m.matchesQuery(item)
+	filter.Sort(rows, m.sortOrder, func(item SelectableItem) filter.Key {
+		return filter.Key{Size: item.Size, Created: item.Created, Name: item.Name}
 	})
+	return rows
 }
 
 // matchesQuery reports whether item's name or text contains the search
@@ -129,11 +133,11 @@ func (m Model) hiddenSelected() int {
 	return n
 }
 
-// filterBar is the status line describing what narrows the list, e.g.
-// `Filters: dangling · older than 30d · "postgres" (esc clears)   +3
-// selected hidden by filters`. It is empty when there is nothing to say.
-// While the search input is open it shows the query itself, so the bar
-// leaves it out.
+// filterBar is the status line describing what narrows and orders the list,
+// e.g. `Filters: dangling · older than 30d · "postgres" (esc clears)   Sort:
+// size   +3 selected hidden by filters`. It is empty when there is nothing
+// to say. While the search input is open it shows the query itself, so the
+// bar leaves it out.
 func (m Model) filterBar() string {
 	var parts []string
 
@@ -147,6 +151,10 @@ func (m Model) filterBar() string {
 			bar += " (esc clears)"
 		}
 		parts = append(parts, bar)
+	}
+
+	if m.sortOrder != filter.SortDefault {
+		parts = append(parts, "Sort: "+m.sortOrder.String())
 	}
 
 	if n := m.hiddenSelected(); n > 0 {

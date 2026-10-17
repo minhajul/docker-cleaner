@@ -39,6 +39,10 @@ type keyMap struct {
 	FilterStopped   key.Binding
 	FilterUnused    key.Binding
 	FilterOlderThan key.Binding
+
+	// Sort cycles the order of the rows within each section; see
+	// filter.SortOrder.
+	Sort key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -128,6 +132,10 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("O"),
 			key.WithHelp("O", "older than 7/30/90d"),
 		),
+		Sort: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "sort: size/age/name"),
+		),
 	}
 }
 
@@ -147,8 +155,9 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.PageUp, k.PageDown, k.Home, k.End},
 		{k.ForceRetry},
 		{k.ShowProtected},
-		{k.Search, k.ClearFilters},
-		{k.FilterDangling, k.FilterStopped, k.FilterUnused, k.FilterOlderThan},
+		// One column, taller than the others, rather than two: the full
+		// help is already wider than most terminals.
+		{k.Search, k.FilterDangling, k.FilterStopped, k.FilterUnused, k.FilterOlderThan, k.ClearFilters, k.Sort},
 	}
 }
 

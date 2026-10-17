@@ -3,6 +3,7 @@ package models
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/minhajul/docker-cleaner/docker"
 	"github.com/minhajul/docker-cleaner/filter"
@@ -23,7 +24,8 @@ const (
 // its use is counted from the containers' mounts (see usage).
 func (m *Model) volumeRows() []SelectableItem {
 	u := m.usage()
-	volumes := m.filters.Volumes(m.listedVolumes(), u, m.clock())
+	now := m.clock()
+	volumes := m.filters.Volumes(m.listedVolumes(), u, now)
 
 	var rows []SelectableItem
 	for _, v := range volumes {
@@ -44,9 +46,10 @@ func (m *Model) volumeRows() []SelectableItem {
 		rows = append(rows, SelectableItem{
 			ID:      v.Name,
 			Type:    ItemTypeVolume,
-			Display: fmt.Sprintf("%s (Driver: %s, Size: %s, %s)", name, v.Driver, size, use),
+			Display: fmt.Sprintf("%s (Driver: %s, Size: %s, %s%s)", name, v.Driver, size, use, ageSuffix(v.CreatedAt, now)),
 			Size:    bytes,
 			Name:    name,
+			Created: v.CreatedAt,
 		})
 	}
 
@@ -116,14 +119,23 @@ func (m *Model) buildCacheRows() []SelectableItem {
 }
 
 // section returns a section that is left out while it has nothing to show:
-// its header followed by the rows that pass the search (see shown), or
-// nothing if none do.
+// its header followed by the rows that pass the search, in the sort order
+// (see shown), or nothing if none do.
 func (m *Model) section(header string, rows []SelectableItem) []SelectableItem {
 	rows = m.shown(rows)
 	if len(rows) == 0 {
 		return nil
 	}
 	return append([]SelectableItem{{Type: ItemTypeHeader, Display: header}}, rows...)
+}
+
+// ageSuffix is the age appended to a row's details, e.g. ", Created: 3 weeks
+// ago", or "" if created is unknown.
+func ageSuffix(created, now time.Time) string {
+	if created.IsZero() {
+		return ""
+	}
+	return ", Created: " + docker.HumanAge(created, now)
 }
 
 // volumeName shortens an anonymous volume's name, a random 64-character hex
