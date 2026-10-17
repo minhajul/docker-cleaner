@@ -1,18 +1,19 @@
-# If you prefer the allow list template instead of the deny list, see community template:
-# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
-#
 # Binaries for programs and plugins
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
+/docker-cleaner
 
 # Test binary, built with `go test -c`
 *.test
 
-# Output of the go coverage tool, specifically when used with LiteIDE
+# Coverage profiles (coverage.out) and other tool output
 *.out
+
+# GoReleaser output
+dist/
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
@@ -24,11 +25,10 @@ go.work.sum
 # env file
 .env
 
+# Editor/tool state
 .idea
-docker-cleaner
-
-# Antigravity
 .antigravitycli/
-
-# Puku CLI
 .puku-cli/
+.mcp.json
+.claude/worktrees/
+.claude/settings.local.json

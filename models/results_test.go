@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"docker-cleaner/docker"
 	dockerClient "github.com/fsouza/go-dockerclient"
+	"github.com/minhajul/docker-cleaner/docker"
 )
 
 // listed reports whether a row with id is in the list.

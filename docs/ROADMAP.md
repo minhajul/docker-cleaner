@@ -257,13 +257,13 @@ All 29 steps in the order to implement them. Size is a rough estimate: S is unde
 | 5 | Track selections by ID | 1 · Bugs | M | — | Done |
 | 6 | Delete containers before images | 1 · Bugs | S | 1, 5 | Done |
 | 7 | No silent force-remove of running containers | 1 · Bugs | S | — | Done |
-| 8 | Add a license | 2 · Install | S | — | Not started |
-| 9 | Fix the Go module path | 2 · Install | S | — | Not started |
-| 10 | `--version` and `--help` | 2 · Install | S | 9 | Not started |
-| 11 | Docker context support | 2 · Install | M | — | Not started |
-| 12 | CI workflow | 2 · Install | S | — | Not started |
-| 13 | GoReleaser and Homebrew tap | 2 · Install | M | 9, 10, 12 | Not started |
-| 14 | README refresh and demo GIF | 2 · Install | S | 13 | Not started |
+| 8 | Add a license | 2 · Install | S | — | Done |
+| 9 | Fix the Go module path | 2 · Install | S | — | Done |
+| 10 | `--version` and `--help` | 2 · Install | S | 9 | Done |
+| 11 | Docker context support | 2 · Install | M | — | Done |
+| 12 | CI workflow | 2 · Install | S | — | Done |
+| 13 | GoReleaser and Homebrew tap | 2 · Install | M | 9, 10, 12 | Done |
+| 14 | README refresh and demo GIF | 2 · Install | S | 13 | In progress |
 | 15 | Scrolling, window size, alt screen | 3 · UX | L | — | Done |
 | 16 | Confirmation dialog | 3 · UX | M | 5, 7 | Done |
 | 17 | Bulk selection | 3 · UX | S | 5 | Done |
@@ -276,6 +276,6 @@ All 29 steps in the order to implement them. Size is a rough estimate: S is unde
 | 24 | Reclaimable space summary | 4 · Features | M | 4, 21 | Not started |
 | 25 | Non-interactive `prune` mode | 4 · Features | L | 10, 22 | Not started |
 | 26 | Configurable protect-list | 4 · Features | M | — | Not started |
-| 27 | Clean up tracked and ignored files | 5 · Hygiene | S | — | Not started |
-| 28 | Issue and PR templates | 5 · Hygiene | S | 10 | Not started |
-| 29 | Changelog via GoReleaser | 5 · Hygiene | S | 13 | Not started |
+| 27 | Clean up tracked and ignored files | 5 · Hygiene | S | — | Done |
+| 28 | Issue and PR templates | 5 · Hygiene | S | 10 | Done |
+| 29 | Changelog via GoReleaser | 5 · Hygiene | S | 13 | Done |

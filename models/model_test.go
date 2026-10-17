@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"docker-cleaner/docker"
 	dockerClient "github.com/fsouza/go-dockerclient"
+	"github.com/minhajul/docker-cleaner/docker"
 )
 
 func TestShortID(t *testing.T) {

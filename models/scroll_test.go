@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"docker-cleaner/docker"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/minhajul/docker-cleaner/docker"
 )
 
 // manyImages returns a fetch message for n images with distinct IDs.

@@ -5,9 +5,9 @@ import (
 	"slices"
 	"testing"
 
-	"docker-cleaner/docker"
 	tea "github.com/charmbracelet/bubbletea"
 	dockerClient "github.com/fsouza/go-dockerclient"
+	"github.com/minhajul/docker-cleaner/docker"
 )
 
 const (
