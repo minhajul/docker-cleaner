@@ -1,39 +1,54 @@
 ## Docker Cleaner
 
-This is a terminal user interface application built with Go and Bubble Tea for cleaning up Docker images and containers.
+[![CI](https://github.com/minhajul/docker-cleaner/actions/workflows/ci.yml/badge.svg)](https://github.com/minhajul/docker-cleaner/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/minhajul/docker-cleaner)](https://github.com/minhajul/docker-cleaner/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+A terminal UI for finding and removing Docker images and containers, built with Go and [Bubble Tea](https://github.com/charmbracelet/bubbletea).
+
+![Screenshot](art/screenshot.png)
 
 ### Features
 
-- List all Docker images
-- List all Docker containers (running and stopped)
-- Select multiple images/containers for deletion
-- Delete selected images/containers
-
-### Prerequisites
-
-- Go (version 1.22 or higher)
-- Docker (running on your system)
+- Lists your images and containers (running and stopped) with their sizes and state
+- Hides Kubernetes, minikube, k3s and kind system images and containers so you can't break your cluster
+- Select items one by one, a whole section, or everything
+- Asks before deleting, shows how much space will be freed, and warns about running containers
+- Reports each failure with its reason, and offers a forced retry for images that are in use or have several tags
+- Works with Docker Desktop, Colima, OrbStack, Rancher Desktop and Podman through your current Docker context
 
 ### Installation
 
-1. Clone the repository:
+**Homebrew** (macOS and Linux):
 
 ```bash
-git clone https://github.com/minhajul/docker-cleaner.git
-cd docker-cleaner
+brew install --cask minhajul/tap/docker-cleaner
 ```
+
+**Go** (1.26 or later):
+
+```bash
+go install github.com/minhajul/docker-cleaner@latest
+```
+
+**Binaries:** download an archive for macOS, Linux or Windows from the [releases page](https://github.com/minhajul/docker-cleaner/releases).
 
 ### Usage
 
-1. Build the application: 
-   ```bash
-   make build
-   ```
-2. Run the application:
-   ```bash
-   make run
-   ```
-3. Select what to remove and press `d`. Nothing is deleted until you confirm with `y`.
+Make sure Docker is running, then:
+
+```bash
+docker-cleaner
+```
+
+Select what to remove and press `d`. Nothing is deleted until you confirm with `y`.
+
+docker-cleaner connects to the same daemon as the `docker` CLI: `DOCKER_HOST` if it is set, otherwise the context named by `DOCKER_CONTEXT`, otherwise your current context (`docker context use`).
+
+```text
+docker-cleaner --version   Print the version
+docker-cleaner --help      Show flags and keys
+```
 
 #### Keys
 
@@ -50,31 +65,24 @@ cd docker-cleaner
 | `?` | Show all keys |
 | `q`, `ctrl+c` | Quit |
 
-![Screenshot](art/screenshot.png)
-
 ### Development
 
-To run tests:
+Requires Go 1.26+ and a running Docker daemon to try the app.
 
 ```bash
-make test
+git clone https://github.com/minhajul/docker-cleaner.git
+cd docker-cleaner
+make run    # build and start the app
+make test   # tests with the race detector
+make ci     # format check, vet, tests, govulncheck and golangci-lint
 ```
 
-To run linter:
-
-```bash
-make lint
-```
-
-To clean up:
-
-```bash
-make clean
-```
+Run `make help` to list all targets. The [roadmap](docs/ROADMAP.md) lists planned work.
 
 ### Contributing
 
-Feel free to open issues or pull requests if you have any suggestions or improvements.
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-### Made with ❤️ by [[minhajul](https://github.com/minhajul)]
+### License
+
+[MIT](LICENSE). Made with ❤️ by [minhajul](https://github.com/minhajul).
