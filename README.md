@@ -33,10 +33,22 @@ cd docker-cleaner
    ```bash
    make run
    ```
-3. Navigate the list using the `up` and `down` arrow keys or `k` and `j`
-4. Select/deselect items for cleanup by pressing the space bar
-5. Press `d` to delete all selected images and containers
-6. Press `q` or `Ctrl+C` to quit the application
+3. Select what to remove and press `d`. Nothing is deleted until you confirm with `y`.
+
+#### Keys
+
+| Key | Action |
+|---|---|
+| `↑`/`k`, `↓`/`j` | Move the cursor |
+| `pgup`/`pgdown`, `g`/`G` | Page up/down, jump to first/last row |
+| `space`/`enter` | Select an item; on a section header, select or clear the whole section |
+| `a` / `n` | Select all / select none |
+| `r` | Refresh the lists |
+| `d` | Delete selected (asks for confirmation) |
+| `y` / `f` / `n` | In the confirmation: delete / force-delete running containers / cancel |
+| `f` | After a cleanup: force-remove images that failed because they are in use or have several tags |
+| `?` | Show all keys |
+| `q`, `ctrl+c` | Quit |
 
 ![Screenshot](art/screenshot.png)
 

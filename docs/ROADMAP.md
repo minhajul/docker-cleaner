@@ -264,12 +264,12 @@ All 29 steps in the order to implement them. Size is a rough estimate: S is unde
 | 12 | CI workflow | 2 · Install | S | — | Not started |
 | 13 | GoReleaser and Homebrew tap | 2 · Install | M | 9, 10, 12 | Not started |
 | 14 | README refresh and demo GIF | 2 · Install | S | 13 | Not started |
-| 15 | Scrolling, window size, alt screen | 3 · UX | L | — | Not started |
-| 16 | Confirmation dialog | 3 · UX | M | 5, 7 | Not started |
-| 17 | Bulk selection | 3 · UX | S | 5 | Not started |
-| 18 | Refresh key | 3 · UX | S | 5 | Not started |
-| 19 | Help screen | 3 · UX | S | — | Not started |
-| 20 | Readable per-item errors | 3 · UX | M | 16 | Not started |
+| 15 | Scrolling, window size, alt screen | 3 · UX | L | — | Done |
+| 16 | Confirmation dialog | 3 · UX | M | 5, 7 | Done |
+| 17 | Bulk selection | 3 · UX | S | 5 | Done |
+| 18 | Refresh key | 3 · UX | S | 5 | Done |
+| 19 | Help screen | 3 · UX | S | — | Done |
+| 20 | Readable per-item errors | 3 · UX | M | 16 | Done |
 | 21 | Volumes, networks, build cache | 4 · Features | L | 15 | Not started |
 | 22 | Filters and search | 4 · Features | M | 15 | Not started |
 | 23 | Sorting and item age | 4 · Features | S | — | Not started |
