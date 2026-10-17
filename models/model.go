@@ -360,6 +360,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cleaning = false
 		m.refreshing = 0
 		return m, nil
+
+	default:
+		// The search input's own messages, such as the clipboard text
+		// ctrl+v reads.
+		if m.searching {
+			var cmd tea.Cmd
+			m.search, cmd = m.search.Update(msg)
+			m.setQuery(m.search.Value())
+			return m, cmd
+		}
 	}
 
 	return m, nil

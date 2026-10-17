@@ -274,6 +274,14 @@ func TestSearchInputTakesKeys(t *testing.T) {
 	}
 }
 
+func TestSearchTakesPaste(t *testing.T) {
+	m := send(t, filterModel(t, filterFake()), runes("/"))
+	m = send(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("busybox"), Paste: true})
+	if got, want := visibleIDs(m), []string{imgB}; !slices.Equal(got, want) {
+		t.Errorf("listed = %v, want %v", got, want)
+	}
+}
+
 func TestSearchReopensOnQuery(t *testing.T) {
 	m := send(t, filterModel(t, filterFake()), runes("/"))
 	m = send(t, m, runes("busy"))
