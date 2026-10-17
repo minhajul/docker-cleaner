@@ -90,4 +90,9 @@ var (
 	// items there are and how to reveal or hide them.
 	ProtectedHint = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#6B7280"))
+
+	// FilterBar is the style for the status line naming the active filters
+	// and search, and for notes about items they hide.
+	FilterBar = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#3B82F6"))
 )

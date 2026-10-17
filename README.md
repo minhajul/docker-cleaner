@@ -13,6 +13,7 @@ A terminal UI for finding and removing Docker images, containers, volumes, netwo
 - Lists your images, containers (running and stopped), volumes, networks and build cache, with sizes, state and what is in use
 - Hides Kubernetes, minikube, k3s and kind system resources so you can't break your cluster, plus anything you list in a [protect-list](#protecting-resources)
 - Select items one by one, a whole section, or everything
+- Filter to dangling images, stopped containers, unused resources or old items, and search by name
 - Asks before deleting, shows how much space will be freed, and warns about running containers
 - Reports each failure with its reason, and offers a forced retry for images that are in use or have several tags
 - Works with Docker Desktop, Colima, OrbStack, Rancher Desktop and Podman through your current Docker context
@@ -64,8 +65,31 @@ docker-cleaner --config <path>   Use another config file
 | `y` / `f` / `n` | In the confirmation: delete / force-delete running or paused containers / cancel |
 | `f` | After a cleanup: force-remove images that failed because they are in use or have several tags |
 | `p` | Show or hide protected items (listed read-only, never selected) |
+| `/` | Search by name as you type; `enter` keeps the search, `esc` clears it |
+| `D` | Show only dangling (untagged) images |
+| `S` | Show only stopped containers (exited, created or dead) |
+| `U` | Show only unused images, volumes and networks |
+| `O` | Show only items older than 7, 30 or 90 days (each press moves on; after 90, off) |
+| `esc` | Clear all filters and the search |
 | `?` | Show all keys |
 | `q`, `ctrl+c` | Quit |
+
+### Filters and search
+
+A filter narrows the sections it applies to and leaves the others alone, so `D` shows only dangling images but still lists every container, volume and network. Filters combine: `U` and `O` together show unused images and volumes older than 7 days. No filter hides the build cache.
+
+| Filter | Images | Containers | Volumes | Networks |
+|---|---|---|---|---|
+| `D` dangling | untagged only | | | |
+| `S` stopped | | exited, created or dead | | |
+| `U` unused | no container uses it | | no container mounts it | no container attached |
+| `O` older than | created before | created before | created before | |
+
+"Unused" counts stopped containers too: an image a stopped container was created from is in use. Docker does not report when a network was created, so `O` leaves networks alone; an image, container or volume whose creation time is unknown is hidden by `O`.
+
+The search (`/`) keeps the rows whose name or text contains what you type, ignoring case, in every section. A line under the list names the active filters and search, e.g. `Filters: dangling · older than 30d · "postgres" (esc clears)`.
+
+Selected items that a filter or the search hides stay selected, but deleting acts only on the selected items you can see. The line under the list counts the hidden ones (`+3 selected hidden by filters`), and the confirmation says they will be kept. Clear the filters with `esc` to see them again.
 
 ### Protecting resources
 

@@ -17,22 +17,15 @@ const (
 )
 
 // volumeRows returns the Volumes section: its header and one row per listed
-// volume (see listedVolumes), or nothing if there are none. Sizes and use
-// counts come from the daemon's disk usage; until it arrives, or if it
-// failed, a volume's size is unknown and its use is counted from the
-// containers' mounts (see usage).
+// volume (see listedVolumes) that passes the filters and the search, or
+// nothing if there are none. Sizes and use counts come from the daemon's disk
+// usage; until it arrives, or if it failed, a volume's size is unknown and
+// its use is counted from the containers' mounts (see usage).
 func (m *Model) volumeRows() []SelectableItem {
-	volumes := m.listedVolumes()
-	if len(volumes) == 0 {
-		return nil
-	}
-
-	header := volumesHeader
-	if m.diskUsageErr != nil {
-		header += " (sizes unavailable)"
-	}
-	rows := []SelectableItem{{Type: ItemTypeHeader, Display: header}}
 	u := m.usage()
+	volumes := m.filters.Volumes(m.listedVolumes(), u, m.clock())
+
+	var rows []SelectableItem
 	for _, v := range volumes {
 		usage, known := m.diskUsage.Volumes[v.Name]
 		size := "unknown"
@@ -56,20 +49,23 @@ func (m *Model) volumeRows() []SelectableItem {
 			Name:    name,
 		})
 	}
-	return rows
+
+	header := volumesHeader
+	if m.diskUsageErr != nil {
+		header += " (sizes unavailable)"
+	}
+	return m.section(header, rows)
 }
 
 // networkRows returns the Networks section: its header and one row per
-// listed network (see listedNetworks), or nothing if there are none.
-// Networks free no measurable space, so their Size is 0.
+// listed network (see listedNetworks) that passes the filters and the
+// search, or nothing if there are none. Networks free no measurable space,
+// so their Size is 0.
 func (m *Model) networkRows() []SelectableItem {
-	networks := m.listedNetworks()
-	if len(networks) == 0 {
-		return nil
-	}
-
-	rows := []SelectableItem{{Type: ItemTypeHeader, Display: networksHeader}}
 	u := m.usage()
+	networks := m.filters.Networks(m.listedNetworks(), u)
+
+	var rows []SelectableItem
 	for _, n := range networks {
 		rows = append(rows, SelectableItem{
 			ID:   n.ID,
@@ -79,7 +75,7 @@ func (m *Model) networkRows() []SelectableItem {
 			Name: n.Name,
 		})
 	}
-	return rows
+	return m.section(networksHeader, rows)
 }
 
 // usage tells which resources the fetched containers, running or not and
@@ -92,8 +88,9 @@ func (m *Model) usage() filter.Usage {
 // buildCacheRows returns the Build cache section: its header and a single
 // row standing for the whole cache, e.g. "Build cache: 312 entries, 4.1 GB
 // reclaimable". There is nothing to show while the disk usage has not
-// arrived or the cache has nothing reclaimable; if the disk usage could not
-// be fetched, the header alone says so.
+// arrived, the cache has nothing reclaimable or the search leaves the row
+// out; if the disk usage could not be fetched, the header alone says so.
+// The filters leave the build cache alone.
 func (m *Model) buildCacheRows() []SelectableItem {
 	if m.diskUsageErr != nil {
 		return []SelectableItem{{
@@ -109,16 +106,24 @@ func (m *Model) buildCacheRows() []SelectableItem {
 	if bc.Entries == 1 {
 		entries = "1 entry"
 	}
-	return []SelectableItem{
-		{Type: ItemTypeHeader, Display: buildCacheHeader},
-		{
-			ID:      docker.BuildCacheID,
-			Type:    ItemTypeBuildCache,
-			Display: fmt.Sprintf("Build cache: %s, %s reclaimable", entries, docker.HumanSize(bc.Reclaimable)),
-			Size:    bc.Reclaimable,
-			Name:    "build cache",
-		},
+	return m.section(buildCacheHeader, []SelectableItem{{
+		ID:      docker.BuildCacheID,
+		Type:    ItemTypeBuildCache,
+		Display: fmt.Sprintf("Build cache: %s, %s reclaimable", entries, docker.HumanSize(bc.Reclaimable)),
+		Size:    bc.Reclaimable,
+		Name:    "build cache",
+	}})
+}
+
+// section returns a section that is left out while it has nothing to show:
+// its header followed by the rows that pass the search (see shown), or
+// nothing if none do.
+func (m *Model) section(header string, rows []SelectableItem) []SelectableItem {
+	rows = m.shown(rows)
+	if len(rows) == 0 {
+		return nil
 	}
+	return append([]SelectableItem{{Type: ItemTypeHeader, Display: header}}, rows...)
 }
 
 // volumeName shortens an anonymous volume's name, a random 64-character hex
