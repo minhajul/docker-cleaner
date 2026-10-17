@@ -250,13 +250,13 @@ All 29 steps in the order to implement them. Size is a rough estimate: S is unde
 
 | # | Step | Phase | Size | Depends on | Status |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Docker client behind an interface | 1 · Bugs | M | — | Not started |
-| 2 | Show real container sizes | 1 · Bugs | S | — | Not started |
-| 3 | Fix image ID display | 1 · Bugs | S | — | Not started |
-| 4 | Show space a container delete frees | 1 · Bugs | S | 2 | Not started |
-| 5 | Track selections by ID | 1 · Bugs | M | — | Not started |
-| 6 | Delete containers before images | 1 · Bugs | S | 1, 5 | Not started |
-| 7 | No silent force-remove of running containers | 1 · Bugs | S | — | Not started |
+| 1 | Docker client behind an interface | 1 · Bugs | M | — | Done |
+| 2 | Show real container sizes | 1 · Bugs | S | — | Done |
+| 3 | Fix image ID display | 1 · Bugs | S | — | Done |
+| 4 | Show space a container delete frees | 1 · Bugs | S | 2 | Done |
+| 5 | Track selections by ID | 1 · Bugs | M | — | Done |
+| 6 | Delete containers before images | 1 · Bugs | S | 1, 5 | Done |
+| 7 | No silent force-remove of running containers | 1 · Bugs | S | — | Done |
 | 8 | Add a license | 2 · Install | S | — | Not started |
 | 9 | Fix the Go module path | 2 · Install | S | — | Not started |
 | 10 | `--version` and `--help` | 2 · Install | S | 9 | Not started |
