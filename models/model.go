@@ -37,7 +37,8 @@ type SelectableItem struct {
 	// empty for other items and headers.
 	State string
 	// Name is an image's first tag or a container's name ("<none>" if it
-	// has neither), or a volume's name, for naming the item in messages.
+	// has neither), or a volume's or network's name, for naming the item
+	// in messages.
 	Name string
 }
 
@@ -49,6 +50,7 @@ type Model struct {
 	images       []dockerClient.APIImages
 	containers   []dockerClient.APIContainers
 	volumes      []dockerClient.Volume
+	networks     []dockerClient.Network
 	// diskUsage adds volume sizes to the lists; diskUsageErr is why it
 	// could not be fetched, if it could not.
 	diskUsage    docker.DiskUsage
@@ -89,6 +91,7 @@ type pendingDelete struct {
 	images     int
 	containers int
 	volumes    int
+	networks   int
 	size       int64 // bytes freed: the selected rows' Size (see SelectableItem)
 	running    int   // selected containers that are running
 }
@@ -141,6 +144,7 @@ func (m Model) fetchCmds() []tea.Cmd {
 		docker.FetchDockerImages(m.dockerClient),
 		docker.FetchDockerContainers(m.dockerClient),
 		docker.FetchVolumes(m.dockerClient),
+		docker.FetchNetworks(m.dockerClient),
 		docker.FetchDiskUsage(m.dockerClient),
 	}
 }
@@ -232,6 +236,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case docker.VolumesFetchedMsg:
 		m.volumes = msg.Volumes
+		m.refreshing = max(0, m.refreshing-1)
+		m.updateItems()
+		return m, nil
+
+	case docker.NetworksFetchedMsg:
+		m.networks = msg.Networks
 		m.refreshing = max(0, m.refreshing-1)
 		m.updateItems()
 		return m, nil
@@ -356,6 +366,8 @@ func (m *Model) newPendingDelete() *pendingDelete {
 			p.images++
 		case ItemTypeVolume:
 			p.volumes++
+		case ItemTypeNetwork:
+			p.networks++
 		case ItemTypeContainer:
 			p.containers++
 			if row.State == "running" {
@@ -378,6 +390,9 @@ func (p *pendingDelete) prompt() string {
 	}
 	if p.volumes > 0 {
 		parts = append(parts, plural(p.volumes, "volume"))
+	}
+	if p.networks > 0 {
+		parts = append(parts, plural(p.networks, "network"))
 	}
 	return fmt.Sprintf("Delete %s (%s)? y/N", strings.Join(parts, ", "), docker.HumanSize(p.size))
 }
@@ -638,6 +653,7 @@ func (m *Model) updateItems() {
 	}
 
 	m.items = append(m.items, m.volumeRows()...)
+	m.items = append(m.items, m.networkRows()...)
 
 	m.reconcileSelection()
 	m.scrollToCursor()

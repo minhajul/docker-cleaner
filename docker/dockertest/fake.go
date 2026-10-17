@@ -107,11 +107,14 @@ func (f *Fake) RemoveContainer(opts client.RemoveContainerOptions) error {
 	return fmt.Errorf("no such container: %s", opts.ID)
 }
 
+// ListVolumes returns a copy of Volumes, as a daemon would return a fresh
+// list, so later removals do not change the slice the caller holds. So does
+// ListNetworks.
 func (f *Fake) ListVolumes(_ client.ListVolumesOptions) ([]client.Volume, error) {
 	if f.ListErr != nil {
 		return nil, f.ListErr
 	}
-	return f.Volumes, nil
+	return slices.Clone(f.Volumes), nil
 }
 
 // RemoveVolumeWithOptions removes the volume opts.Name. It ignores
@@ -134,7 +137,7 @@ func (f *Fake) ListNetworks() ([]client.Network, error) {
 	if f.ListErr != nil {
 		return nil, f.ListErr
 	}
-	return f.Networks, nil
+	return slices.Clone(f.Networks), nil
 }
 
 func (f *Fake) RemoveNetwork(id string) error {

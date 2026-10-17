@@ -4,13 +4,15 @@ import (
 	"fmt"
 	"strings"
 
+	dockerClient "github.com/fsouza/go-dockerclient"
 	"github.com/minhajul/docker-cleaner/docker"
 )
 
 // Section headers of the resources listed after images and containers. Each
 // section is left out while it has nothing to show.
 const (
-	volumesHeader = "💾 Volumes"
+	volumesHeader  = "💾 Volumes"
+	networksHeader = "🔗 Networks"
 )
 
 // volumeRows returns the Volumes section: its header and one row per user
@@ -71,6 +73,46 @@ func (m *Model) volumeMounts(name string) int {
 		}
 	}
 	return n
+}
+
+// networkRows returns the Networks section: its header and one row per
+// user-created network, or nothing if there are none. Networks free no
+// measurable space, so their Size is 0.
+func (m *Model) networkRows() []SelectableItem {
+	networks := docker.FilterUserNetworks(m.networks)
+	if len(networks) == 0 {
+		return nil
+	}
+
+	rows := []SelectableItem{{Type: ItemTypeHeader, Display: networksHeader}}
+	for _, n := range networks {
+		rows = append(rows, SelectableItem{
+			ID:   n.ID,
+			Type: ItemTypeNetwork,
+			Display: fmt.Sprintf("%s (ID: %s, Driver: %s, Containers: %d)",
+				n.Name, docker.ShortID(n.ID), n.Driver, m.networkContainers(n)),
+			Name: n.Name,
+		})
+	}
+	return rows
+}
+
+// networkContainers counts the containers attached to n. The daemon's
+// network list leaves them out, so they are taken from the listed
+// containers' network settings, along with any the network does report.
+func (m *Model) networkContainers(n dockerClient.Network) int {
+	attached := make(map[string]struct{}, len(n.Containers))
+	for id := range n.Containers {
+		attached[id] = struct{}{}
+	}
+	for _, c := range m.containers {
+		for name, settings := range c.Networks.Networks {
+			if settings.NetworkID == n.ID || (settings.NetworkID == "" && name == n.Name) {
+				attached[c.ID] = struct{}{}
+			}
+		}
+	}
+	return len(attached)
 }
 
 // volumeName shortens an anonymous volume's name, a random 64-character hex
