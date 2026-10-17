@@ -190,6 +190,15 @@ func newModel(cli docker.API) Model {
 	}
 }
 
+// NewWithClient returns a Model backed by cli instead of a connection
+// InitialModel makes, protecting what protector protects. The demo
+// (internal/demo) uses it to run the TUI on canned data.
+func NewWithClient(cli docker.API, protector docker.Protector) Model {
+	m := newModel(cli)
+	m.protector = protector
+	return m
+}
+
 func (m Model) Init() tea.Cmd {
 	return m.refreshCmd()
 }
@@ -785,6 +794,23 @@ func (m *Model) reconcileSelection() {
 	m.cursor = max(0, min(m.cursor, len(m.items)-1))
 }
 
+// showsSection reports whether the list shows the section of type typ. With
+// no filter on, every section shows. A filter shows only the sections it
+// applies to (filter.Options.Narrows), as prune does: with "dangling" on,
+// only images are listed, so selecting all and deleting cannot reach
+// containers, volumes or the build cache. The search alone hides no section.
+func (m *Model) showsSection(typ ItemType) bool {
+	return !m.filters.Active() || m.filters.Narrows(docker.CleanupItemType(typ))
+}
+
+// addSection appends header and rows to the list if the section shows.
+func (m *Model) addSection(typ ItemType, header SelectableItem, rows []SelectableItem) {
+	if m.showsSection(typ) {
+		m.items = append(m.items, header)
+		m.items = append(m.items, rows...)
+	}
+}
+
 func (m *Model) updateItems() {
 	m.items = []SelectableItem{}
 
@@ -794,10 +820,7 @@ func (m *Model) updateItems() {
 	containers := m.filters.Containers(m.listedContainers(), now)
 
 	// Add images section
-	m.items = append(m.items, SelectableItem{
-		Type:    ItemTypeHeader,
-		Display: "📦 Docker Images",
-	})
+	header := SelectableItem{Type: ItemTypeHeader, Display: "📦 Docker Images"}
 
 	var rows []SelectableItem
 	for _, img := range images {
@@ -816,13 +839,10 @@ func (m *Model) updateItems() {
 			Created: created,
 		})
 	}
-	m.items = append(m.items, m.shown(rows)...)
+	m.addSection(ItemTypeImage, header, m.shown(rows))
 
 	// Add containers section
-	m.items = append(m.items, SelectableItem{
-		Type:    ItemTypeHeader,
-		Display: "🏃 Docker Containers",
-	})
+	header = SelectableItem{Type: ItemTypeHeader, Display: "🏃 Docker Containers"}
 
 	rows = nil
 	for _, container := range containers {
@@ -853,11 +873,23 @@ func (m *Model) updateItems() {
 			Created: created,
 		})
 	}
-	m.items = append(m.items, m.shown(rows)...)
+	m.addSection(ItemTypeContainer, header, m.shown(rows))
 
-	m.items = append(m.items, m.volumeRows()...)
-	m.items = append(m.items, m.networkRows()...)
-	m.items = append(m.items, m.buildCacheRows()...)
+	// The other sections build their own header (and leave themselves out
+	// when empty). They are built even when not shown, since building them
+	// records which resources are protected.
+	for _, sec := range []struct {
+		typ  ItemType
+		rows []SelectableItem
+	}{
+		{ItemTypeVolume, m.volumeRows()},
+		{ItemTypeNetwork, m.networkRows()},
+		{ItemTypeBuildCache, m.buildCacheRows()},
+	} {
+		if m.showsSection(sec.typ) {
+			m.items = append(m.items, sec.rows...)
+		}
+	}
 
 	m.reconcileSelection()
 	m.scrollToCursor()

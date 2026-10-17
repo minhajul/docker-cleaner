@@ -5,7 +5,7 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-.PHONY: all build run test lint clean fmt fmt-check tidy vuln ci help vet
+.PHONY: all build run test lint clean fmt fmt-check tidy vuln ci help vet demo
 
 all: fmt-check vet test build
 
@@ -45,3 +45,7 @@ clean:
 	go clean
 	rm -f $(BINARY_NAME)
 	rm -rf dist
+
+demo: ## Record art/demo.gif and art/screenshot.png with VHS (canned data, no Docker needed)
+	go build -o dist/demo ./internal/demo
+	vhs art/demo.tape

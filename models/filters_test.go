@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	dockerClient "github.com/fsouza/go-dockerclient"
+	"github.com/minhajul/docker-cleaner/docker"
 	"github.com/minhajul/docker-cleaner/docker/dockertest"
 	"github.com/minhajul/docker-cleaner/filter"
 	"github.com/moby/moby/api/types/volume"
@@ -105,23 +106,24 @@ func TestFilters(t *testing.T) {
 		bar  string
 	}{
 		{"none", "", everything, ""},
-		{"dangling narrows images only", "D",
-			[]string{imgDangling, ctrRunning, ctrStopped, ctrX, volData, volCache, netApp, netSpare},
+		// A filter shows only the sections it applies to.
+		{"dangling shows images only", "D",
+			[]string{imgDangling},
 			"Filters: dangling (esc clears)"},
-		{"stopped narrows containers only", "S",
-			[]string{imgA, imgB, imgDangling, ctrStopped, ctrX, volData, volCache, netApp, netSpare},
+		{"stopped shows containers only", "S",
+			[]string{ctrStopped, ctrX},
 			"Filters: stopped (esc clears)"},
-		{"unused narrows images, volumes and networks", "U",
-			[]string{imgB, imgDangling, ctrRunning, ctrStopped, ctrX, volCache, netSpare},
+		{"unused shows images, volumes and networks", "U",
+			[]string{imgB, imgDangling, volCache, netSpare},
 			"Filters: unused (esc clears)"},
 		{"older than 7d", "O",
-			[]string{imgB, imgDangling, ctrStopped, ctrX, volData, netApp, netSpare},
+			[]string{imgB, imgDangling, ctrStopped, ctrX, volData},
 			"Filters: older than 7d (esc clears)"},
 		{"older than 30d", "OO",
-			[]string{imgB, imgDangling, ctrStopped, volData, netApp, netSpare},
+			[]string{imgB, imgDangling, ctrStopped, volData},
 			"Filters: older than 30d (esc clears)"},
 		{"older than 90d", "OOO",
-			[]string{imgDangling, netApp, netSpare},
+			[]string{imgDangling},
 			"Filters: older than 90d (esc clears)"},
 		{"older than cycles back to off", "OOOO", everything, ""},
 		{"a second press turns a filter off", "DD", everything, ""},
@@ -153,8 +155,26 @@ func TestFilterLeavesEmptySectionsOut(t *testing.T) {
 	if strings.Contains(view, networksHeader) {
 		t.Errorf("an emptied Networks section should be left out, got:\n%s", view)
 	}
-	if !strings.Contains(view, "📦 Docker Images") || !strings.Contains(view, "🏃 Docker Containers") {
-		t.Errorf("the image and container headers should stay, got:\n%s", view)
+	if !strings.Contains(view, "📦 Docker Images") {
+		t.Errorf("the images header should stay, got:\n%s", view)
+	}
+	if strings.Contains(view, "🏃 Docker Containers") {
+		t.Errorf("unused does not apply to containers, so their section should be left out, got:\n%s", view)
+	}
+}
+
+func TestFilterThenSelectAllReachesOnlyFilteredTypes(t *testing.T) {
+	m := pressAll(t, filterModel(t, filterFake()), "Dad")
+	if m.confirm == nil {
+		t.Fatal("d should open the confirmation")
+	}
+	for _, it := range m.confirm.items {
+		if it.Type != docker.CleanupItemTypeImage {
+			t.Errorf("with only dangling on, the delete includes a %v: %v", it.Type, it.ID)
+		}
+	}
+	if got := m.confirm.prompt(); !strings.HasPrefix(got, "Delete 1 image ") {
+		t.Errorf("prompt = %q, want only the dangling image", got)
 	}
 }
 
@@ -354,9 +374,9 @@ func TestSelectionDropsVanishedWhileFiltered(t *testing.T) {
 
 func TestSelectAllSelectsVisibleOnly(t *testing.T) {
 	m := pressAll(t, filterModel(t, filterFake()), "Sa")
-	want := slices.Sorted(slices.Values([]string{imgA, imgB, imgDangling, ctrStopped, ctrX, volData, volCache, netApp, netSpare}))
+	want := slices.Sorted(slices.Values([]string{ctrStopped, ctrX}))
 	if got := selectedIDs(m); !slices.Equal(got, want) {
-		t.Errorf("selected = %v, want %v (all but the hidden running container)", got, want)
+		t.Errorf("selected = %v, want %v (the stopped containers only)", got, want)
 	}
 }
 

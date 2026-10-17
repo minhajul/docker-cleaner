@@ -6,7 +6,7 @@
 
 A terminal UI for finding and removing Docker images, containers, volumes, networks and build cache, built with Go and [Bubble Tea](https://github.com/charmbracelet/bubbletea).
 
-![Screenshot](art/screenshot.png)
+![docker-cleaner demo: sort by size, filter dangling images, delete them, show unused resources, search and the key help](art/demo.gif)
 
 ### Features
 
@@ -81,7 +81,7 @@ docker-cleaner prune [flags]     Delete what filters match, without the UI (see 
 
 ### Filters and search
 
-A filter narrows the sections it applies to and leaves the others alone, so `D` shows only dangling images but still lists every container, volume and network. Filters combine: `U` and `O` together show unused images and volumes older than 7 days. No filter hides the build cache.
+A filter shows only the sections it applies to, so `D` lists only dangling images, and `a` then `d` can't reach your containers, volumes or build cache. Filters combine: `U` and `O` together show unused images and volumes older than 7 days, plus unused networks. The build cache shows only when no filter is on.
 
 | Filter | Images | Containers | Volumes | Networks |
 |---|---|---|---|---|
@@ -226,7 +226,7 @@ make test   # tests with the race detector
 make ci     # format check, vet, tests, govulncheck and golangci-lint
 ```
 
-Run `make help` to list all targets. The [roadmap](docs/ROADMAP.md) lists planned work.
+Run `make help` to list all targets. `make demo` re-records `art/demo.gif` and `art/screenshot.png` with [VHS](https://github.com/charmbracelet/vhs) from `art/demo.tape`, using canned data (`internal/demo`), not your Docker. The [roadmap](docs/ROADMAP.md) lists planned work.
 
 ### Contributing
 
