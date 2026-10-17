@@ -84,11 +84,15 @@ func (o Options) Labels() []string {
 	return labels
 }
 
-// FormatAge formats an OlderThan duration in whole days, e.g. "30d", or in
-// Go duration syntax if it is not a whole number of days.
+// FormatAge formats an OlderThan duration in whole days, e.g. "30d", else in
+// whole hours, e.g. "12h", else in Go duration syntax, e.g. "1h30m0s". Each
+// form is one ParseAge reads back.
 func FormatAge(d time.Duration) string {
-	if d%Day == 0 {
+	switch {
+	case d%Day == 0:
 		return fmt.Sprintf("%dd", d/Day)
+	case d%time.Hour == 0:
+		return fmt.Sprintf("%dh", d/time.Hour)
 	}
 	return d.String()
 }

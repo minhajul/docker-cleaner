@@ -328,7 +328,8 @@ func TestFormatAge(t *testing.T) {
 	}{
 		{7 * Day, "7d"},
 		{90 * Day, "90d"},
-		{36 * time.Hour, "36h0m0s"},
+		{36 * time.Hour, "36h"},
+		{90 * time.Minute, "1h30m0s"},
 	}
 	for _, c := range cases {
 		if got := FormatAge(c.d); got != c.want {
@@ -377,7 +378,7 @@ func TestParseAgeInvalid(t *testing.T) {
 }
 
 func TestParseAgeRoundTrip(t *testing.T) {
-	for _, d := range []time.Duration{Day, 7 * Day, 30 * Day, 36 * time.Hour} {
+	for _, d := range []time.Duration{Day, 7 * Day, 30 * Day, 36 * time.Hour, 90 * time.Minute} {
 		got, err := ParseAge(FormatAge(d))
 		if err != nil || got != d {
 			t.Errorf("ParseAge(FormatAge(%v)) = %v, %v", d, got, err)
