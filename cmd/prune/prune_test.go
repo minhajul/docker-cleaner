@@ -213,7 +213,7 @@ func TestRunDryRunDeletesNothing(t *testing.T) {
 
 func TestRunDryRunText(t *testing.T) {
 	fake := world()
-	r := run(t, fake, noEnv, "--older-than", "30d", "--dry-run")
+	r := run(t, fake, noEnv, "--older-than", "30d", "--type", "containers,images,volumes", "--dry-run")
 	if r.code != ExitOK || r.stderr != "" {
 		t.Fatalf("exit code %d, stderr %q", r.code, r.stderr)
 	}
@@ -262,7 +262,7 @@ func TestRunDeletesMatched(t *testing.T) {
 		args []string
 		want []string
 	}{
-		{"older than", []string{"--older-than", "30d"}, []string{
+		{"older than", []string{"--older-than", "30d", "--type", "containers,images,volumes"}, []string{
 			// Containers first; then the images, which old-job no
 			// longer holds; then the volumes, jobdata among them.
 			"container:" + ctrJob,
@@ -273,7 +273,7 @@ func TestRunDeletesMatched(t *testing.T) {
 		{"dangling and older than", []string{"--dangling", "--older-than", "7d", "--type", "images"}, []string{"image:" + imgDangling}},
 		{"stopped", []string{"--stopped"}, []string{"container:" + ctrJob, "container:" + ctrNew}},
 		{"stopped and older than", []string{"--stopped", "--older-than", "30d", "--type", "containers"}, []string{"container:" + ctrJob}},
-		{"unused", []string{"--unused"}, []string{
+		{"unused", []string{"--unused", "--type", "images,volumes,networks"}, []string{
 			"image:" + imgDangling, "image:" + imgDanglingNew, "image:" + imgAlpine,
 			"volume:cache", "volume:" + volAnon,
 			"network:" + netOld,
@@ -284,7 +284,7 @@ func TestRunDeletesMatched(t *testing.T) {
 		{"unused volumes and networks", []string{"--unused", "--type", "networks,volumes"}, []string{
 			"volume:cache", "volume:" + volAnon, "network:" + netOld,
 		}},
-		{"unused and older than", []string{"--unused", "--older-than", "30d"}, []string{
+		{"unused and older than", []string{"--unused", "--older-than", "30d", "--type", "containers,images,volumes,networks"}, []string{
 			// Every filter that applies must pass: --unused does not
 			// apply to containers, and networks have no age, so only
 			// --unused narrows them.
@@ -320,7 +320,7 @@ func TestRunNeverTouchesProtectedOrPredefined(t *testing.T) {
 	if r.code != ExitOK {
 		t.Fatalf("exit code = %d; stderr %q", r.code, r.stderr)
 	}
-	r2 := run(t, fake, noEnv, "--older-than", "1h", "--yes", "--force")
+	r2 := run(t, fake, noEnv, "--older-than", "1h", "--type", "containers,images,volumes", "--yes", "--force")
 	if r2.code != ExitOK {
 		t.Fatalf("exit code = %d; stderr %q", r2.code, r2.stderr)
 	}
@@ -343,7 +343,7 @@ func TestRunNeverTouchesProtectedOrPredefined(t *testing.T) {
 
 func TestRunForce(t *testing.T) {
 	fake := world()
-	r := run(t, fake, noEnv, "--older-than", "30d", "--yes", "--force")
+	r := run(t, fake, noEnv, "--older-than", "30d", "--type", "containers,images,volumes", "--yes", "--force")
 	if r.code != ExitOK {
 		t.Fatalf("exit code = %d; stderr %q", r.code, r.stderr)
 	}
@@ -424,7 +424,7 @@ func TestRunPartialFailure(t *testing.T) {
 			Message: "conflict: unable to delete 444444444444 (must be forced) - image is referenced in multiple repositories"},
 		"cache": errors.New("disk on fire"),
 	}
-	r := run(t, fake, noEnv, "--older-than", "30d", "--yes")
+	r := run(t, fake, noEnv, "--older-than", "30d", "--type", "containers,images,volumes", "--yes")
 	if r.code != ExitFailure {
 		t.Errorf("exit code = %d, want %d", r.code, ExitFailure)
 	}
@@ -518,7 +518,7 @@ func TestRunErrors(t *testing.T) {
 
 func TestRunJSONDryRun(t *testing.T) {
 	fake := world()
-	r := run(t, fake, noEnv, "--older-than", "30d", "--dry-run", "--json")
+	r := run(t, fake, noEnv, "--older-than", "30d", "--type", "containers,images,volumes", "--dry-run", "--json")
 	if r.code != ExitOK || r.stderr != "" {
 		t.Fatalf("exit code %d, stderr %q", r.code, r.stderr)
 	}

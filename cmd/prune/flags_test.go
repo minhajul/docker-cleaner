@@ -25,14 +25,17 @@ func TestParseTypes(t *testing.T) {
 		args []string
 		want []docker.CleanupItemType
 	}{
-		// By default, every type a filter narrows, in removal order.
+		// By default, every type a filter narrows except volumes, in
+		// removal order.
 		{"dangling", []string{"--dangling"}, []docker.CleanupItemType{typeImage}},
 		{"stopped", []string{"--stopped"}, []docker.CleanupItemType{typeContainer}},
-		{"unused", []string{"--unused"}, []docker.CleanupItemType{typeImage, typeVolume, typeNetwork}},
-		{"older than", []string{"--older-than", "30d"}, []docker.CleanupItemType{typeContainer, typeImage, typeVolume}},
+		{"unused", []string{"--unused"}, []docker.CleanupItemType{typeImage, typeNetwork}},
+		{"older than", []string{"--older-than", "30d"}, []docker.CleanupItemType{typeContainer, typeImage}},
 		{"dangling and stopped", []string{"--dangling", "--stopped"}, []docker.CleanupItemType{typeContainer, typeImage}},
 		{"every filter", []string{"--dangling", "--stopped", "--unused", "--older-than=7d"},
-			[]docker.CleanupItemType{typeContainer, typeImage, typeVolume, typeNetwork}},
+			[]docker.CleanupItemType{typeContainer, typeImage, typeNetwork}},
+		// Volumes hold data: only pruned when named.
+		{"volumes when named", []string{"--older-than", "30d", "--type", "volumes,images"}, []docker.CleanupItemType{typeImage, typeVolume}},
 
 		// --type picks among them, in removal order whatever the order
 		// given, and may add the build cache.

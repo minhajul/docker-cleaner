@@ -46,7 +46,8 @@ Filters (at least one is needed, unless --type is just build-cache):
 Flags:
       --type <types>      Comma-separated types to prune: images, containers,
                           volumes, networks, build-cache. Default: every type
-                          a filter narrows. Every type named, except
+                          a filter narrows, except volumes, which hold data
+                          and must be named. Every type named, except
                           build-cache, needs a filter that narrows it.
                           build-cache prunes all unused build cache, filters
                           aside, and is never included by default.
@@ -189,14 +190,16 @@ var errNoFilter = errors.New(`refusing to prune without a filter, which would de
 Pass --dangling, --stopped, --unused or --older-than, or --type build-cache to prune only the build cache`)
 
 // resolveTypes returns the types to prune: explicit, the types --type named
-// (nil if it was not given), or else every type f narrows. It refuses to
+// (nil if it was not given), or else every type f narrows except volumes,
+// which hold data and, as with docker system prune --volumes, are pruned
+// only when named. It refuses to
 // prune a type, other than the build cache, that no filter narrows: every
 // resource of it would be deleted.
 func resolveTypes(f filter.Options, explicit []docker.CleanupItemType) ([]docker.CleanupItemType, error) {
 	var types []docker.CleanupItemType
 	for _, t := range docker.RemovalOrder() {
 		switch {
-		case explicit == nil && f.Narrows(t):
+		case explicit == nil && f.Narrows(t) && t != docker.CleanupItemTypeVolume:
 			types = append(types, t)
 		case !slices.Contains(explicit, t):
 		case t == docker.CleanupItemTypeBuildCache || f.Narrows(t):

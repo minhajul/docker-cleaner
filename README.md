@@ -152,7 +152,7 @@ docker-cleaner prune --dangling --older-than 7d --yes  # delete it
 | `--json` | Print one JSON object instead of text |
 | `--config <path>` | Use another config file |
 
-Each filter narrows only the types it applies to (see the table under [Filters and search](#filters-and-search)), and filters combine with AND. Without `--type`, prune acts on every type an active filter narrows, so `--dangling` prunes only images and `--older-than 30d` prunes images, containers and volumes. `--type build-cache` prunes all unused build cache, whatever the filters; it is never included unless named.
+Each filter narrows only the types it applies to (see the table under [Filters and search](#filters-and-search)), and filters combine with AND. Without `--type`, prune acts on every type an active filter narrows except volumes, so `--dangling` prunes only images and `--older-than 30d` prunes images and containers. Volumes hold data, so, as with `docker system prune --volumes`, they are pruned only when named: `--unused --type volumes`. `--type build-cache` prunes all unused build cache, whatever the filters; it is never included unless named.
 
 Since it deletes unattended, prune is careful:
 
