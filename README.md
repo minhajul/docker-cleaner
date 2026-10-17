@@ -87,7 +87,7 @@ Matching rules:
 - A pattern must match a whole name, and case matters.
 - Every pattern is checked against every resource:
   - an **image** by each tag and each tag's repository, so `postgres` and `postgres:*` protect every `postgres` tag, while `postgres:16` protects only that tag. Untagged (`<none>`) images match nothing.
-  - a **container** by its name, without Docker's leading `/` (a leading `/` on a pattern is ignored too). A container is not protected by its image's name.
+  - a **container** by its name, without Docker's leading `/` (a leading `/` on a pattern is ignored too). A container is not protected by its image's name, but the image a protected container runs on is protected too, so it can't be untagged from under it.
 
 | Pattern | Matches | Doesn't match |
 |---|---|---|

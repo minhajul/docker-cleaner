@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 
 	client "github.com/fsouza/go-dockerclient"
@@ -22,6 +23,10 @@ const (
 	// ReasonProtectList marks a resource matching a user pattern from the
 	// config file's protect-list.
 	ReasonProtectList Reason = "protect-list"
+	// ReasonUsedByProtected marks an image that a protected container runs
+	// on. Deleting it (in particular a forced delete, which only untags an
+	// image in use) would leave the protected container without its image.
+	ReasonUsedByProtected Reason = "used by protected container"
 )
 
 // Protector decides which resources the TUI hides and never deletes: those
@@ -160,4 +165,26 @@ func globEscapeSlash(s string) string {
 func globMatch(pattern, name string) bool {
 	ok, _ := path.Match(globEscapeSlash(pattern), globEscapeSlash(name))
 	return ok
+}
+
+// ImageMatchesRef reports whether img is the image a container refers to by
+// ref, the reference the container was created from (APIContainers.Image):
+// an image ID, a repo:tag, a repo with an implied ":latest", or a
+// repo@digest.
+func ImageMatchesRef(img client.APIImages, ref string) bool {
+	if ref == "" {
+		return false
+	}
+	if strings.TrimPrefix(ref, "sha256:") == strings.TrimPrefix(img.ID, "sha256:") {
+		return true
+	}
+	if strings.Contains(ref, "@") {
+		return slices.Contains(img.RepoDigests, ref)
+	}
+	// A colon after the last slash separates the tag; one before it belongs
+	// to a registry port (localhost:5000/app).
+	if !strings.Contains(ref[strings.LastIndex(ref, "/")+1:], ":") {
+		ref += ":latest"
+	}
+	return slices.Contains(img.RepoTags, ref)
 }

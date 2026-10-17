@@ -143,3 +143,35 @@ func TestImageRepo(t *testing.T) {
 		}
 	}
 }
+
+func TestImageMatchesRef(t *testing.T) {
+	img := client.APIImages{
+		ID:          "sha256:e757967a5ec338f6a9b371c5a9688bedaa8c3578ea3dd4db329ea0084be0a86f",
+		RepoTags:    []string{"postgres:16", "nginx:latest", "localhost:5000/app:1.0"},
+		RepoDigests: []string{"postgres@sha256:abc123"},
+	}
+	cases := []struct {
+		ref  string
+		want bool
+	}{
+		{"postgres:16", true},
+		{"postgres:15", false},
+		{"postgres", false}, // implies postgres:latest
+		{"nginx", true},
+		{"nginx:latest", true},
+		{"localhost:5000/app:1.0", true},
+		{"localhost:5000/app", false}, // implies :latest, not a port-as-tag
+		{"postgres@sha256:abc123", true},
+		{"postgres@sha256:other", false},
+		{"sha256:e757967a5ec338f6a9b371c5a9688bedaa8c3578ea3dd4db329ea0084be0a86f", true},
+		{"e757967a5ec338f6a9b371c5a9688bedaa8c3578ea3dd4db329ea0084be0a86f", true},
+		{"", false},
+	}
+	for _, c := range cases {
+		t.Run(c.ref, func(t *testing.T) {
+			if got := ImageMatchesRef(img, c.ref); got != c.want {
+				t.Errorf("ImageMatchesRef(%q) = %v, want %v", c.ref, got, c.want)
+			}
+		})
+	}
+}

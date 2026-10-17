@@ -295,3 +295,34 @@ func TestFullHelpListsShowProtected(t *testing.T) {
 		t.Errorf("full help lacks the p key:\n%s", view)
 	}
 }
+
+func TestImageOfProtectedContainerIsProtected(t *testing.T) {
+	p, err := docker.NewProtector([]string{"my-db"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := newModel(nil)
+	m.protector = p
+	m = updated(m, docker.ImagesFetchedMsg{Images: []dockerClient.APIImages{
+		{ID: imgPostgres, RepoTags: []string{"postgres:16"}},
+		{ID: imgA, RepoTags: []string{"alpine:latest"}},
+	}})
+	m = updated(m, docker.ContainersFetchedMsg{Containers: []dockerClient.APIContainers{
+		{ID: ctrDB, Names: []string{"/my-db"}, Image: "postgres:16"},
+		{ID: ctrX, Names: []string{"/web"}, Image: "alpine"},
+	}})
+
+	if got := m.protected[imgPostgres]; got != docker.ReasonUsedByProtected {
+		t.Errorf("postgres:16 reason = %q, want %q", got, docker.ReasonUsedByProtected)
+	}
+	if got := m.protected[imgA]; got != docker.NotProtected {
+		t.Errorf("alpine (used by an unprotected container) reason = %q, want none", got)
+	}
+
+	m = press(m, "a")
+	for _, it := range m.getSelectionForCleanup() {
+		if it.ID == imgPostgres || it.ID == ctrDB {
+			t.Errorf("selection includes protected %s", it.ID)
+		}
+	}
+}
