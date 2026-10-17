@@ -17,8 +17,12 @@ type ItemType int
 
 const (
 	ItemTypeHeader ItemType = iota
+	// The other values equal the matching docker.CleanupItemType.
 	ItemTypeImage
 	ItemTypeContainer
+	ItemTypeVolume
+	ItemTypeNetwork
+	ItemTypeBuildCache
 )
 
 type SelectableItem struct {
@@ -437,13 +441,15 @@ func (m Model) footerView() string {
 	return s.String()
 }
 
-// getSelectionForCleanup returns the selected items, containers first so an
-// image is never removed before a container that uses it, and otherwise in
-// list order. Iterating m.items rather than the selection map keeps the order
+// getSelectionForCleanup returns the selected items by type in
+// docker.RemovalOrder, containers first so an image, volume or network is
+// never removed before a container that uses it, and otherwise in list order.
+// Iterating m.items rather than the selection map keeps the order
 // deterministic.
 func (m *Model) getSelectionForCleanup() []docker.CleanupItem {
 	var items []docker.CleanupItem
-	for _, typ := range []ItemType{ItemTypeContainer, ItemTypeImage} {
+	for _, t := range docker.RemovalOrder() {
+		typ := ItemType(t)
 		for _, item := range m.items {
 			if item.Type != typ {
 				continue
