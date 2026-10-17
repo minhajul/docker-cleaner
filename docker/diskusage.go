@@ -31,9 +31,50 @@ type BuildCacheUsage struct {
 	NeedsAll bool
 }
 
+// TypeUsage is one row of `docker system df`: the totals for one type of
+// resource.
+type TypeUsage struct {
+	// Total is the number of resources of the type.
+	Total int64
+	// Active is the number of them in use (see DiskUsageTotals).
+	Active int64
+	// Size is the disk space they take, in bytes.
+	Size int64
+	// Reclaimable is the part of Size that removing the unused ones would
+	// free, in bytes.
+	Reclaimable int64
+}
+
+// DiskUsageTotals holds the per-type totals `docker system df` prints. They
+// are the daemon's own figures, taken as reported, as the docker CLI (v29)
+// does. Daemons older than API 1.52 report only the individual resources;
+// for them the moby client derives the totals with these definitions:
+//
+//   - Images: Size is the size of all image layers on disk, shared layers
+//     counted once. Active images are used by at least one container.
+//     Reclaimable is the sum of Size − SharedSize over unused images: their
+//     layers no other image shares.
+//   - Containers: Size is the sum of the containers' writable layers
+//     (SizeRw). Active containers are running, paused or restarting.
+//     Reclaimable is Size minus the active containers' writable layers.
+//   - Volumes: Size is the sum of the sizes the volume drivers report.
+//     Active volumes are mounted by at least one container, running or not.
+//     Reclaimable is Size minus the active volumes' sizes.
+//   - Build cache: Size is the sum of the records' sizes, shared records
+//     excluded. Active records are in use. Reclaimable is Size minus the
+//     unshared records in use.
+type DiskUsageTotals struct {
+	Images     TypeUsage
+	Containers TypeUsage
+	Volumes    TypeUsage
+	BuildCache TypeUsage
+}
+
 // DiskUsage is the part of the daemon's disk usage report (`docker system
 // df -v`) that docker-cleaner shows.
 type DiskUsage struct {
+	// Totals sums up each type of resource, as `docker system df` does.
+	Totals DiskUsageTotals
 	// Volumes maps a volume's name to its usage. A volume missing from it
 	// has no usage data.
 	Volumes map[string]VolumeUsage
@@ -54,9 +95,12 @@ type DiskUsageFetchedMsg struct {
 // own and the lists it adds to show without it first.
 func FetchDiskUsage(cli API) tea.Cmd {
 	return func() tea.Msg {
-		// Verbose: from API 1.52 the daemon lists the individual volumes
-		// and build cache records only when asked to.
+		// Every type, for the totals. Verbose: from API 1.52 the daemon
+		// lists the individual volumes and build cache records only when
+		// asked to.
 		res, err := cli.DiskUsage(context.Background(), mobyclient.DiskUsageOptions{
+			Images:     true,
+			Containers: true,
 			Volumes:    true,
 			BuildCache: true,
 			Verbose:    true,
@@ -70,7 +114,15 @@ func FetchDiskUsage(cli API) tea.Cmd {
 
 // newDiskUsage extracts what docker-cleaner shows from the daemon's report.
 func newDiskUsage(res mobyclient.DiskUsageResult) DiskUsage {
-	u := DiskUsage{Volumes: make(map[string]VolumeUsage, len(res.Volumes.Items))}
+	u := DiskUsage{
+		Totals: DiskUsageTotals{
+			Images:     TypeUsage{res.Images.TotalCount, res.Images.ActiveCount, res.Images.TotalSize, res.Images.Reclaimable},
+			Containers: TypeUsage{res.Containers.TotalCount, res.Containers.ActiveCount, res.Containers.TotalSize, res.Containers.Reclaimable},
+			Volumes:    TypeUsage{res.Volumes.TotalCount, res.Volumes.ActiveCount, res.Volumes.TotalSize, res.Volumes.Reclaimable},
+			BuildCache: TypeUsage{res.BuildCache.TotalCount, res.BuildCache.ActiveCount, res.BuildCache.TotalSize, res.BuildCache.Reclaimable},
+		},
+		Volumes: make(map[string]VolumeUsage, len(res.Volumes.Items)),
+	}
 	for _, v := range res.Volumes.Items {
 		if v.UsageData != nil {
 			u.Volumes[v.Name] = VolumeUsage{Size: v.UsageData.Size, RefCount: v.UsageData.RefCount}
