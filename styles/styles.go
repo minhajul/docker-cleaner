@@ -78,4 +78,16 @@ var (
 	ScrollIndicator = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#6B7280")).
 			Faint(true)
+
+	// Protected is the style for the text of a protected row, listed
+	// read-only after the user reveals protected items.
+	Protected = lipgloss.NewStyle().
+			PaddingLeft(1).
+			Foreground(lipgloss.Color("#6B7280")).
+			Faint(true)
+
+	// ProtectedHint is the style for the line saying how many protected
+	// items there are and how to reveal or hide them.
+	ProtectedHint = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6B7280"))
 )

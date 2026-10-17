@@ -59,6 +59,8 @@ func TestProtectorImageReason(t *testing.T) {
 		{"registry port repo", []string{"localhost:5000/app"}, []string{"localhost:5000/app:1.0"}, ReasonProtectList},
 		{"registry port not a tag", []string{"localhost"}, []string{"localhost:5000/app:1.0"}, NotProtected},
 		{"question mark", []string{"redis:?"}, []string{"redis:7"}, ReasonProtectList},
+		{"question mark is one character", []string{"postgres:1?"}, []string{"postgres:16.4"}, NotProtected},
+		{"other repo", []string{"ghcr.io/acme/*"}, []string{"ghcr.io/other/api:1.0"}, NotProtected},
 		{"character class", []string{"db[0-9]"}, []string{"db1:latest"}, ReasonProtectList},
 		{"case-sensitive", []string{"Postgres"}, []string{"postgres:16"}, NotProtected},
 		{"untagged never matches", []string{"*"}, []string{"<none>:<none>"}, NotProtected},

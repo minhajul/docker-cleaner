@@ -43,6 +43,11 @@ func (m Model) rowView(i int) string {
 		return line.String()
 	}
 
+	if m.isProtected(item) {
+		line.WriteString(m.protectedRowView(item))
+		return line.String()
+	}
+
 	// Checkbox for selectable items
 	_, isSelected := m.selected[item.ID]
 	if isSelected {

@@ -24,6 +24,10 @@ type keyMap struct {
 	// ForceRetry is enabled only while the last cleanup left images that a
 	// forced removal may delete.
 	ForceRetry key.Binding
+
+	// ShowProtected reveals or hides protected resources (system ones and
+	// those on the config file's protect-list).
+	ShowProtected key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -85,6 +89,10 @@ func defaultKeyMap() keyMap {
 			key.WithHelp("f", "force-remove failed images"),
 			key.WithDisabled(),
 		),
+		ShowProtected: key.NewBinding(
+			key.WithKeys("p"),
+			key.WithHelp("p", "show/hide protected"),
+		),
 	}
 }
 
@@ -103,6 +111,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.SelectAll, k.SelectNone, k.Refresh},
 		{k.PageUp, k.PageDown, k.Home, k.End},
 		{k.ForceRetry},
+		{k.ShowProtected},
 	}
 }
 

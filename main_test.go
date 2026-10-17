@@ -19,7 +19,7 @@ func TestParseFlagsVersion(t *testing.T) {
 	for _, arg := range []string{"--version", "-version", "-v", "--v"} {
 		t.Run(arg, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code, exit := parseFlags([]string{arg}, &stdout, &stderr)
+			_, code, exit := parseFlags([]string{arg}, &stdout, &stderr)
 			if !exit || code != 0 {
 				t.Fatalf("parseFlags(%q) = (%d, %v), want (0, true)", arg, code, exit)
 			}
@@ -60,11 +60,11 @@ func TestParseFlagsHelp(t *testing.T) {
 	for _, arg := range []string{"--help", "-h", "-help"} {
 		t.Run(arg, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code, exit := parseFlags([]string{arg}, &stdout, &stderr)
+			_, code, exit := parseFlags([]string{arg}, &stdout, &stderr)
 			if !exit || code != 0 {
 				t.Fatalf("parseFlags(%q) = (%d, %v), want (0, true)", arg, code, exit)
 			}
-			for _, want := range []string{"Usage:", "--version", "--help", "Keys:", "Quit"} {
+			for _, want := range []string{"Usage:", "--version", "--help", "--config", "config.yaml", "Keys:", "Quit"} {
 				if !strings.Contains(stdout.String(), want) {
 					t.Errorf("help output lacks %q:\n%s", want, stdout.String())
 				}
@@ -84,11 +84,12 @@ func TestParseFlagsInvalid(t *testing.T) {
 	}{
 		{"unknown flag", []string{"--nope"}, "flag provided but not defined: -nope"},
 		{"argument", []string{"images"}, "unexpected argument: images"},
+		{"config without path", []string{"--config"}, "flag needs an argument: -config"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code, exit := parseFlags(tt.args, &stdout, &stderr)
+			_, code, exit := parseFlags(tt.args, &stdout, &stderr)
 			if !exit || code != 2 {
 				t.Fatalf("parseFlags(%q) = (%d, %v), want (2, true)", tt.args, code, exit)
 			}
@@ -104,10 +105,35 @@ func TestParseFlagsInvalid(t *testing.T) {
 
 func TestParseFlagsNone(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if code, exit := parseFlags(nil, &stdout, &stderr); exit || code != 0 {
+	if _, code, exit := parseFlags(nil, &stdout, &stderr); exit || code != 0 {
 		t.Fatalf("parseFlags(nil) = (%d, %v), want (0, false)", code, exit)
 	}
 	if stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Errorf("unexpected output: stdout %q, stderr %q", stdout.String(), stderr.String())
+	}
+}
+
+func TestParseFlagsConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"default", nil, ""},
+		{"separate value", []string{"--config", "/tmp/dc.yaml"}, "/tmp/dc.yaml"},
+		{"equals", []string{"--config=/tmp/dc.yaml"}, "/tmp/dc.yaml"},
+		{"single dash", []string{"-config", "dc.yaml"}, "dc.yaml"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			opts, code, exit := parseFlags(tt.args, &stdout, &stderr)
+			if exit || code != 0 {
+				t.Fatalf("parseFlags(%q) = (%d, %v), want (0, false); stderr %q", tt.args, code, exit, stderr.String())
+			}
+			if opts.configPath != tt.want {
+				t.Errorf("configPath = %q, want %q", opts.configPath, tt.want)
+			}
+		})
 	}
 }
